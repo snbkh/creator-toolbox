@@ -13,9 +13,11 @@ import {
   View,
 } from "react-native";
 import Svg, { Path } from "react-native-svg";
+import * as FileSystem from "expo-file-system/legacy";
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 interface PathData {
   d: string;
@@ -108,6 +110,7 @@ export default function SignatureMakerScreen() {
               width={canvasSize.width}
               height={canvasSize.height}
               style={StyleSheet.absoluteFill}
+              pointerEvents="none"
             >
               {paths.map((p, i) => (
                 <Path
@@ -122,7 +125,7 @@ export default function SignatureMakerScreen() {
               ))}
             </Svg>
             {paths.length === 0 && (
-              <View style={styles.canvasHint}>
+              <View style={styles.canvasHint} pointerEvents="none">
                 <Text style={styles.canvasHintText}>Draw your signature here</Text>
               </View>
             )}
@@ -226,15 +229,37 @@ export default function SignatureMakerScreen() {
             <Text style={[styles.actionBtnText, { color: colors.destructive }]}>Clear</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            onPress={() => {
+            onPress={async () => {
+              if (paths.length === 0) return;
               Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-              Alert.alert("Signature Ready", "Take a screenshot to save your signature as an image.");
+              try {
+                // Generate a transparent SVG representing the signature
+                const svgContent = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 350 220" width="350" height="220" style="background:transparent;">
+  ${paths
+    .map(
+      (p) =>
+        `<path d="${p.d}" stroke="${p.color}" stroke-width="${p.width}" stroke-linecap="round" stroke-linejoin="round" fill="none" />`
+    )
+    .join("\n  ")}
+</svg>`;
+
+                const filename = `signature_${Date.now()}.svg`;
+                const fileUri = FileSystem.cacheDirectory + filename;
+                await FileSystem.writeAsStringAsync(fileUri, svgContent, {
+                  encoding: FileSystem.EncodingType.UTF8,
+                });
+
+                await shareFile(fileUri, filename, "image/svg+xml");
+              } catch (err) {
+                console.error("Signature save error:", err);
+                Alert.alert("Save Failed", "Could not export your signature.");
+              }
             }}
             disabled={paths.length === 0}
             style={[
               styles.actionBtnPrimary,
               {
-                backgroundColor: paths.length > 0 ? colors.primary : colors.muted,
+                backgroundColor: paths.length > 0 ? "#10B981" : colors.muted,
                 borderRadius: colors.radius,
                 flex: 1,
               },
@@ -243,20 +268,17 @@ export default function SignatureMakerScreen() {
             <Ionicons
               name="download-outline"
               size={18}
-              color={paths.length > 0 ? colors.primaryForeground : colors.mutedForeground}
+              color={paths.length > 0 ? "#FFF" : colors.mutedForeground}
             />
             <Text
               style={[
                 styles.actionBtnText,
                 {
-                  color:
-                    paths.length > 0
-                      ? colors.primaryForeground
-                      : colors.mutedForeground,
+                  color: paths.length > 0 ? "#FFF" : colors.mutedForeground,
                 },
               ]}
             >
-              Save
+              Save Signature
             </Text>
           </TouchableOpacity>
         </View>

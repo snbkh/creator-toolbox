@@ -8,9 +8,10 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOp
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
-interface PDFFile { name: string; size: number; }
+interface PDFFile { name: string; size: number; uri: string; }
 type Position = "center" | "diagonal" | "top" | "bottom";
 type Color = "#00000040" | "#DC262640" | "#0EA5E940" | "#10B98140";
 
@@ -41,7 +42,7 @@ export default function PdfWatermarkScreen() {
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576 }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
   };
 
   const apply = async () => {
@@ -122,14 +123,24 @@ export default function PdfWatermarkScreen() {
               </View>
             </View>
 
-            <TouchableOpacity onPress={apply} disabled={loading || !watermarkText.trim()} style={[styles.btn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, opacity: !watermarkText.trim() ? 0.5 : 1 }]}>
+            <TouchableOpacity onPress={apply} disabled={loading || !watermarkText.trim()} style={[styles.btn, { backgroundColor: done ? "#10B981" + "22" : ACCENT, borderColor: done ? "#10B981" : "transparent", borderWidth: done ? 1 : 0, borderRadius: colors.radius, marginHorizontal: 16, opacity: !watermarkText.trim() ? 0.5 : 1 }]}>
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "watermark"} size={20} color="#FFF" />
-                  <Text style={styles.btnTxt}>{done ? "Watermark Applied!" : "Apply Watermark"}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "watermark"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.btnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? "Watermark Configured" : "Apply Watermark"}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && (
+              <TouchableOpacity
+                onPress={() => shareFile(file.uri, `watermarked_${file.name}`, "application/pdf")}
+                style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                <Text style={styles.btnTxt}>Save / Download PDF</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

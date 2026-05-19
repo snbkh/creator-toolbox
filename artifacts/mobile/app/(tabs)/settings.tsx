@@ -9,6 +9,7 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
@@ -21,10 +22,36 @@ import { useColors } from "@/hooks/useColors";
 export default function SettingsScreen() {
   const colors = useAppColors();
   const insets = useSafeAreaInsets();
-  const { isDarkMode, setDarkMode, clearHistory, processedFiles, favoriteTools } = useApp();
+  const {
+    isDarkMode,
+    setDarkMode,
+    clearHistory,
+    processedFiles,
+    favoriteTools,
+    geminiKey,
+    setGeminiKey,
+    openaiKey,
+    setOpenaiKey,
+    groqKey,
+    setGroqKey,
+    claudeKey,
+    setClaudeKey,
+    removeBgKey,
+    setRemoveBgKey,
+    selectedAiProvider,
+    setSelectedAiProvider,
+    selectedBgProvider,
+    setSelectedBgProvider,
+  } = useApp();
   const isWeb = Platform.OS === "web";
   const topPad = isWeb ? 67 : insets.top;
   const bottomPad = isWeb ? 34 : insets.bottom;
+
+  const [showGemini, setShowGemini] = React.useState(false);
+  const [showOpenai, setShowOpenai] = React.useState(false);
+  const [showGroq, setShowGroq] = React.useState(false);
+  const [showClaude, setShowClaude] = React.useState(false);
+  const [showRemoveBg, setShowRemoveBg] = React.useState(false);
 
   const implementedCount = TOOLS.filter((t) => t.implemented).length;
   const totalTools = TOOLS.length;
@@ -115,6 +142,157 @@ export default function SettingsScreen() {
               />
             }
           />
+        </SettingSection>
+
+        {/* AI & API Configuration */}
+        <SettingSection title="AI & API Configuration">
+          <View style={styles.apiConfigContainer}>
+            <Text style={[styles.apiLabel, { color: colors.mutedForeground }]}>DEFAULT AI PROVIDER</Text>
+            <View style={styles.providerGrid}>
+              {([
+                { id: "local", name: "Offline" },
+                { id: "gemini", name: "Gemini" },
+                { id: "openai", name: "OpenAI" },
+                { id: "groq", name: "Groq" },
+                { id: "claude", name: "Claude" }
+              ] as const).map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => setSelectedAiProvider(p.id)}
+                  style={[
+                    styles.providerBtn,
+                    {
+                      backgroundColor: selectedAiProvider === p.id ? colors.primary + "22" : colors.muted,
+                      borderColor: selectedAiProvider === p.id ? colors.primary : "transparent",
+                      borderRadius: 8,
+                    }
+                  ]}
+                >
+                  <Text style={[styles.providerBtnTxt, { color: selectedAiProvider === p.id ? colors.primary : colors.foreground }]}>
+                    {p.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <Text style={[styles.apiLabel, { color: colors.mutedForeground, marginTop: 12 }]}>API KEYS</Text>
+            
+            {/* Gemini Key */}
+            <View style={[styles.keyInputRow, { borderColor: colors.border }]}>
+              <Ionicons name="sparkles-outline" size={16} color={colors.primary} style={styles.keyIcon} />
+              <TextInput
+                style={[styles.keyInput, { color: colors.foreground }]}
+                value={geminiKey}
+                onChangeText={setGeminiKey}
+                placeholder="Gemini API Key"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry={!showGemini}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowGemini(!showGemini)} style={styles.eyeBtn}>
+                <Ionicons name={showGemini ? "eye-off-outline" : "eye-outline"} size={16} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            {/* OpenAI Key */}
+            <View style={[styles.keyInputRow, { borderColor: colors.border }]}>
+              <Ionicons name="aperture-outline" size={16} color={colors.primary} style={styles.keyIcon} />
+              <TextInput
+                style={[styles.keyInput, { color: colors.foreground }]}
+                value={openaiKey}
+                onChangeText={setOpenaiKey}
+                placeholder="OpenAI API Key"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry={!showOpenai}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowOpenai(!showOpenai)} style={styles.eyeBtn}>
+                <Ionicons name={showOpenai ? "eye-off-outline" : "eye-outline"} size={16} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            {/* Groq Key */}
+            <View style={[styles.keyInputRow, { borderColor: colors.border }]}>
+              <Ionicons name="flash-outline" size={16} color={colors.primary} style={styles.keyIcon} />
+              <TextInput
+                style={[styles.keyInput, { color: colors.foreground }]}
+                value={groqKey}
+                onChangeText={setGroqKey}
+                placeholder="Groq API Key"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry={!showGroq}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowGroq(!showGroq)} style={styles.eyeBtn}>
+                <Ionicons name={showGroq ? "eye-off-outline" : "eye-outline"} size={16} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            {/* Claude Key */}
+            <View style={[styles.keyInputRow, { borderColor: colors.border }]}>
+              <MaterialCommunityIcons name="brain" size={16} color={colors.primary} style={styles.keyIcon} />
+              <TextInput
+                style={[styles.keyInput, { color: colors.foreground }]}
+                value={claudeKey}
+                onChangeText={setClaudeKey}
+                placeholder="Claude (Anthropic) API Key"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry={!showClaude}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowClaude(!showClaude)} style={styles.eyeBtn}>
+                <Ionicons name={showClaude ? "eye-off-outline" : "eye-outline"} size={16} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+
+            {/* Remove.bg Key */}
+            <Text style={[styles.apiLabel, { color: colors.mutedForeground, marginTop: 12 }]}>BACKGROUND REMOVER PROVIDER</Text>
+            <View style={styles.providerGrid}>
+              {([
+                { id: "local", name: "Local Engine" },
+                { id: "removebg", name: "Remove.bg API" }
+              ] as const).map((p) => (
+                <Pressable
+                  key={p.id}
+                  onPress={() => setSelectedBgProvider(p.id)}
+                  style={[
+                    styles.providerBtn,
+                    {
+                      backgroundColor: selectedBgProvider === p.id ? colors.primary + "22" : colors.muted,
+                      borderColor: selectedBgProvider === p.id ? colors.primary : "transparent",
+                      borderRadius: 8,
+                      flex: 1,
+                    }
+                  ]}
+                >
+                  <Text style={[styles.providerBtnTxt, { color: selectedBgProvider === p.id ? colors.primary : colors.foreground }]}>
+                    {p.name}
+                  </Text>
+                </Pressable>
+              ))}
+            </View>
+
+            <View style={[styles.keyInputRow, { borderColor: colors.border, marginTop: 8 }]}>
+              <Ionicons name="image-outline" size={16} color={colors.primary} style={styles.keyIcon} />
+              <TextInput
+                style={[styles.keyInput, { color: colors.foreground }]}
+                value={removeBgKey}
+                onChangeText={setRemoveBgKey}
+                placeholder="Remove.bg API Key"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry={!showRemoveBg}
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              <Pressable onPress={() => setShowRemoveBg(!showRemoveBg)} style={styles.eyeBtn}>
+                <Ionicons name={showRemoveBg ? "eye-off-outline" : "eye-outline"} size={16} color={colors.mutedForeground} />
+              </Pressable>
+            </View>
+          </View>
         </SettingSection>
 
         {/* Storage */}
@@ -338,5 +516,50 @@ const styles = StyleSheet.create({
   settingSub: {
     fontSize: 12,
     fontFamily: "Inter_400Regular",
+  },
+  apiConfigContainer: {
+    padding: 14,
+    gap: 8,
+  },
+  apiLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.8,
+  },
+  providerGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 6,
+    marginVertical: 4,
+  },
+  providerBtn: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderWidth: 1,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  providerBtnTxt: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  keyInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    borderWidth: 1,
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    height: 40,
+  },
+  keyIcon: {
+    marginRight: 8,
+  },
+  keyInput: {
+    flex: 1,
+    fontSize: 13,
+    fontFamily: "Inter_400Regular",
+  },
+  eyeBtn: {
+    padding: 6,
   },
 });

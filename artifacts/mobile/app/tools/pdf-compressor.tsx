@@ -16,6 +16,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
 
@@ -164,14 +165,24 @@ export default function PdfCompressorScreen() {
               </View>
             </View>
 
-            <TouchableOpacity onPress={compress} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+            <TouchableOpacity onPress={compress} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" + "22" : ACCENT, borderColor: done ? "#10B981" : "transparent", borderWidth: done ? 1 : 0, borderRadius: colors.radius, marginHorizontal: 16 }]}>
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "file-download-outline"} size={20} color="#FFF" />
-                  <Text style={styles.btnTxt}>{done ? `Compressed — ${formatSize(estimatedSize)}` : "Compress PDF"}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "file-download-outline"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.btnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? "Compression Finished" : "Compress PDF"}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && (
+              <TouchableOpacity
+                onPress={() => shareFile(file.uri, `compressed_${file.name}`, "application/pdf")}
+                style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                <Text style={styles.btnTxt}>Save / Download PDF</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

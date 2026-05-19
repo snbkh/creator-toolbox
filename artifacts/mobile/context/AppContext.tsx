@@ -24,6 +24,13 @@ interface AppState {
   favoriteTools: string[];
   processedFiles: ProcessedFile[];
   isDarkMode: boolean;
+  geminiKey: string;
+  openaiKey: string;
+  groqKey: string;
+  claudeKey: string;
+  removeBgKey: string;
+  selectedAiProvider: "local" | "gemini" | "openai" | "groq" | "claude";
+  selectedBgProvider: "local" | "removebg";
 }
 
 interface AppContextValue extends AppState {
@@ -32,6 +39,13 @@ interface AppContextValue extends AppState {
   addProcessedFile: (file: Omit<ProcessedFile, "id" | "timestamp">) => void;
   clearHistory: () => void;
   setDarkMode: (value: boolean) => void;
+  setGeminiKey: (key: string) => void;
+  setOpenaiKey: (key: string) => void;
+  setGroqKey: (key: string) => void;
+  setClaudeKey: (key: string) => void;
+  setRemoveBgKey: (key: string) => void;
+  setSelectedAiProvider: (provider: "local" | "gemini" | "openai" | "groq" | "claude") => void;
+  setSelectedBgProvider: (provider: "local" | "removebg") => void;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
@@ -48,6 +62,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     favoriteTools: [],
     processedFiles: [],
     isDarkMode: true,
+    geminiKey: "",
+    openaiKey: "",
+    groqKey: "",
+    claudeKey: "",
+    removeBgKey: "",
+    selectedAiProvider: "local",
+    selectedBgProvider: "local",
   });
 
   useEffect(() => {
@@ -137,6 +158,83 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     [persist]
   );
 
+  const setGeminiKey = useCallback(
+    (key: string) => {
+      setState((prev) => {
+        const next: AppState = { ...prev, geminiKey: key };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setOpenaiKey = useCallback(
+    (key: string) => {
+      setState((prev) => {
+        const next: AppState = { ...prev, openaiKey: key };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setGroqKey = useCallback(
+    (key: string) => {
+      setState((prev) => {
+        const next: AppState = { ...prev, groqKey: key };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setClaudeKey = useCallback(
+    (key: string) => {
+      setState((prev) => {
+        const next: AppState = { ...prev, claudeKey: key };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setRemoveBgKey = useCallback(
+    (key: string) => {
+      setState((prev) => {
+        const next: AppState = { ...prev, removeBgKey: key };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setSelectedAiProvider = useCallback(
+    (provider: "local" | "gemini" | "openai" | "groq" | "claude") => {
+      setState((prev) => {
+        const next: AppState = { ...prev, selectedAiProvider: provider };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
+  const setSelectedBgProvider = useCallback(
+    (provider: "local" | "removebg") => {
+      setState((prev) => {
+        const next: AppState = { ...prev, selectedBgProvider: provider };
+        persist(next);
+        return next;
+      });
+    },
+    [persist]
+  );
+
   return (
     <AppContext.Provider
       value={{
@@ -146,6 +244,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addProcessedFile,
         clearHistory,
         setDarkMode,
+        setGeminiKey,
+        setOpenaiKey,
+        setGroqKey,
+        setClaudeKey,
+        setRemoveBgKey,
+        setSelectedAiProvider,
+        setSelectedBgProvider,
       }}
     >
       {children}

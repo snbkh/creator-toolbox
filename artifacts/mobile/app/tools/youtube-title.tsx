@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +15,8 @@ import {
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
+import { generateWithAi } from "@/utils/ai";
 
 const ACCENT = "#EF4444";
 
@@ -99,17 +102,39 @@ const TITLE_TEMPLATES: Record<Category, string[]> = {
 
 export default function YoutubeTitleScreen() {
   const colors = useColors();
+  const { selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey } = useApp();
   const [topic, setTopic] = useState("");
   const [time, setTime] = useState("5 minutes");
   const [category, setCategory] = useState<Category>("tutorial");
   const [titles, setTitles] = useState<string[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
+  const generate = async () => {
     if (!topic.trim()) return;
-    const templates = TITLE_TEMPLATES[category];
-    const filled = templates.map((t) => t.replace(/\{topic\}/g, topic.trim()).replace(/\{time\}/g, time));
-    setTitles(filled);
+    setLoading(true);
+    
+    const fallback = () => {
+      const templates = TITLE_TEMPLATES[category];
+      return templates.map((t) => t.replace(/\{topic\}/g, topic.trim()).replace(/\{time\}/g, time));
+    };
+    
+    const systemInstruction = `You are a YouTube growth specialist. Generate exactly 6 click-worthy, engaging, and high-CTR YouTube video titles based on the topic, category, and context provided.
+Provide the output strictly as a JSON array of strings, like this:
+["title option 1", "title option 2", "title option 3", "title option 4", "title option 5", "title option 6"]
+Do not include any markdown format blocks, additional explanations, or other texts. Just return the JSON array.`;
+    
+    const userPrompt = `Topic: "${topic.trim()}"\nCategory: "${category}"`;
+    
+    const results = await generateWithAi(
+      systemInstruction,
+      userPrompt,
+      { provider: selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey },
+      fallback
+    );
+    
+    setTitles(results);
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -151,9 +176,19 @@ export default function YoutubeTitleScreen() {
           </View>
         </View>
 
-        <TouchableOpacity onPress={generate} style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}>
-          <Ionicons name="sparkles-outline" size={18} color="#FFF" />
-          <Text style={styles.genBtnTxt}>Generate Titles</Text>
+        <TouchableOpacity
+          onPress={generate}
+          disabled={loading}
+          style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <Ionicons name="sparkles-outline" size={18} color="#FFF" />
+              <Text style={styles.genBtnTxt}>Generate Titles</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {titles.length > 0 && (

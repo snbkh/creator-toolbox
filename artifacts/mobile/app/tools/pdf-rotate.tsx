@@ -8,9 +8,10 @@ import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
-interface PDFFile { name: string; size: number; }
+interface PDFFile { name: string; size: number; uri: string; }
 
 type RotateAngle = 90 | 180 | 270;
 type PageScope = "all" | "odd" | "even" | "custom";
@@ -26,7 +27,7 @@ export default function PdfRotateScreen() {
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576 }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
   };
 
   const rotate = async () => {
@@ -84,14 +85,24 @@ export default function PdfRotateScreen() {
               </View>
             </View>
 
-            <TouchableOpacity onPress={rotate} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+            <TouchableOpacity onPress={rotate} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" + "22" : ACCENT, borderColor: done ? "#10B981" : "transparent", borderWidth: done ? 1 : 0, borderRadius: colors.radius, marginHorizontal: 16 }]}>
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "rotate-right"} size={20} color="#FFF" />
-                  <Text style={styles.btnTxt}>{done ? `Rotated ${angle}°` : `Rotate ${angle}°`}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "rotate-right"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.btnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? "Rotation Finished" : `Rotate ${angle}°`}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && (
+              <TouchableOpacity
+                onPress={() => shareFile(file.uri, `rotated_${angle}deg_${file.name}`, "application/pdf")}
+                style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                <Text style={styles.btnTxt}>Save / Download PDF</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

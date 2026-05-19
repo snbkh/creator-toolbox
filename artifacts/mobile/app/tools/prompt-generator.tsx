@@ -3,10 +3,12 @@ import * as Clipboard from "expo-clipboard";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
-import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View, ActivityIndicator } from "react-native";
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
+import { generateWithAi } from "@/utils/ai";
 
 const ACCENT = "#22D3EE";
 
@@ -78,6 +80,7 @@ function buildPrompt(subject: string, style: ArtStyle, mood: Mood, extras: strin
 
 export default function PromptGeneratorScreen() {
   const colors = useColors();
+  const { selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey } = useApp();
   const [subject, setSubject] = useState("");
   const [style, setStyle] = useState<ArtStyle>("photorealistic");
   const [mood, setMood] = useState<Mood>("cinematic");
@@ -85,10 +88,28 @@ export default function PromptGeneratorScreen() {
   const [type, setType] = useState<PromptType>("midjourney");
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
-    const p = buildPrompt(subject, style, mood, extras, type);
-    setPrompt(p);
+  const generate = async () => {
+    setLoading(true);
+    const fallback = () => [buildPrompt(subject, style, mood, extras, type)];
+    
+    const systemInstruction = `You are an expert AI prompt engineer. Write a single, highly detailed, optimized, and creative prompt for ${type === "midjourney" ? "Midjourney" : type === "dalle" ? "DALL-E" : type === "chatgpt" ? "ChatGPT" : "an AI generator"} based on the subject, art style, and mood provided.
+Provide the output strictly as a JSON array of 1 string element containing the prompt, like this:
+["the generated detailed prompt goes here"]
+Do not include any markdown format blocks, additional explanations, or other texts. Just return the JSON array.`;
+    
+    const userPrompt = `Subject: "${subject || "Any creative scene"}"\nArt Style: "${style}"\nMood/Atmosphere: "${mood}"\nExtras: "${extras}"\nType: "${type}"`;
+    
+    const results = await generateWithAi(
+      systemInstruction,
+      userPrompt,
+      { provider: selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey },
+      fallback
+    );
+    
+    setPrompt(results[0] || "");
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -150,9 +171,19 @@ export default function PromptGeneratorScreen() {
           <TextInput style={[styles.input, { color: colors.foreground, borderColor: colors.border }]} value={extras} onChangeText={setExtras} placeholder="e.g. golden hour, close-up, bokeh..." placeholderTextColor={colors.mutedForeground} />
         </View>
 
-        <TouchableOpacity onPress={generate} style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}>
-          <Ionicons name="sparkles-outline" size={18} color="#000" />
-          <Text style={[styles.genBtnTxt, { color: "#000" }]}>Generate Prompt</Text>
+        <TouchableOpacity
+          onPress={generate}
+          disabled={loading}
+          style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}
+        >
+          {loading ? (
+            <ActivityIndicator color="#000" />
+          ) : (
+            <>
+              <Ionicons name="sparkles-outline" size={18} color="#000" />
+              <Text style={[styles.genBtnTxt, { color: "#000" }]}>Generate Prompt</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {prompt ? (

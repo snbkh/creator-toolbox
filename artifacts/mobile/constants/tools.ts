@@ -94,8 +94,8 @@ export const TOOLS: Tool[] = [
     icon: "image-remove",
     iconSet: "MaterialCommunityIcons",
     category: "image",
-    route: "coming-soon",
-    implemented: false,
+    route: "background-remover",
+    implemented: true,
     trending: true,
   },
   {
@@ -178,8 +178,8 @@ export const TOOLS: Tool[] = [
     icon: "file-image",
     iconSet: "MaterialCommunityIcons",
     category: "image",
-    route: "coming-soon",
-    implemented: false,
+    route: "image-to-pdf",
+    implemented: true,
   },
   {
     id: "target-resize",
@@ -294,8 +294,8 @@ export const TOOLS: Tool[] = [
     icon: "file-image-outline",
     iconSet: "MaterialCommunityIcons",
     category: "pdf",
-    route: "coming-soon",
-    implemented: false,
+    route: "pdf-to-image",
+    implemented: true,
   },
   {
     id: "doc-to-pdf",

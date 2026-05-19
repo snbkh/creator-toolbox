@@ -209,16 +209,16 @@ export default function QrGeneratorScreen() {
         {/* QR Display */}
         {qrUrl && (
           <View style={[styles.qrContainer, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
-            <Image
-              source={{ uri: qrUrl }}
-              style={styles.qrImage}
-              contentFit="contain"
-              placeholder={
-                <View style={styles.qrPlaceholder}>
-                  <ActivityIndicator color="#0EA5E9" />
-                </View>
-              }
-            />
+            <View style={{ width: 200, height: 200, position: "relative" }}>
+              <View style={[styles.qrPlaceholder, StyleSheet.absoluteFill, { justifyContent: "center", alignItems: "center" }]}>
+                <ActivityIndicator color="#0EA5E9" />
+              </View>
+              <Image
+                source={{ uri: qrUrl }}
+                style={styles.qrImage}
+                contentFit="contain"
+              />
+            </View>
             <Text style={[styles.qrContent, { color: colors.mutedForeground }]} numberOfLines={2}>
               {qrContent}
             </Text>
@@ -231,6 +231,8 @@ export default function QrGeneratorScreen() {
                 setSaving(false);
                 if (r === "saved") {
                   Alert.alert("✅ Saved!", "QR Code saved to your gallery in 'Creator Toolbox' album.");
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                } else if (r === "shared") {
                   Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
                 }
               }}

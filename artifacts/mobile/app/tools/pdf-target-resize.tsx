@@ -16,6 +16,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
 
@@ -170,15 +171,25 @@ export default function PdfTargetResizeScreen() {
             <TouchableOpacity
               onPress={process}
               disabled={loading || !targetBytes}
-              style={[styles.processBtn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, opacity: !targetBytes ? 0.5 : 1 }]}
+              style={[styles.processBtn, { backgroundColor: done ? "#10B981" + "22" : ACCENT, borderColor: done ? "#10B981" : "transparent", borderWidth: done ? 1 : 0, borderRadius: colors.radius, marginHorizontal: 16, opacity: !targetBytes ? 0.5 : 1 }]}
             >
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "file-percent-outline"} size={20} color="#FFF" />
-                  <Text style={styles.processBtnTxt}>{done ? `Compressed to ~${estimatedKB} KB` : "Compress to Target"}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "file-percent-outline"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.processBtnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? "Compression Finished" : "Compress to Target"}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && (
+              <TouchableOpacity
+                onPress={() => shareFile(file.uri, `compressed_${targetVal}${unit}.pdf`, "application/pdf")}
+                style={[styles.processBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                <Text style={styles.processBtnTxt}>Save / Download PDF</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

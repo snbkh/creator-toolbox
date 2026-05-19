@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +15,8 @@ import {
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
+import { generateWithAi } from "@/utils/ai";
 
 const ACCENT = "#EC4899";
 
@@ -114,6 +117,7 @@ function generateBio(name: string, role: string, niche: string, cta: string, pla
 
 export default function BioGeneratorScreen() {
   const colors = useColors();
+  const { selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey } = useApp();
   const [name, setName] = useState("");
   const [role, setRole] = useState("");
   const [niche, setNiche] = useState("");
@@ -122,10 +126,28 @@ export default function BioGeneratorScreen() {
   const [tone, setTone] = useState<Tone>("creative");
   const [bios, setBios] = useState<string[]>([]);
   const [copied, setCopied] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
-    const results = generateBio(name, role, niche, cta, platform, tone);
+  const generate = async () => {
+    setLoading(true);
+    const fallback = () => generateBio(name, role, niche, cta, platform, tone);
+    
+    const systemInstruction = `You are a social media copywriter. Generate exactly 2 distinct, highly engaging bios for the user based on their name, role, niche, call-to-action, social media platform, and desired tone.
+Provide the output strictly as a JSON array of strings, like this:
+["bio option 1", "bio option 2"]
+Do not include any markdown format blocks, additional explanations, or other texts. Just return the JSON array.`;
+    
+    const userPrompt = `Name: "${name}"\nRole: "${role}"\nNiche: "${niche}"\nCTA: "${cta}"\nPlatform: "${platform}"\nTone: "${tone}"`;
+    
+    const results = await generateWithAi(
+      systemInstruction,
+      userPrompt,
+      { provider: selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey },
+      fallback
+    );
+    
     setBios(results);
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -184,9 +206,19 @@ export default function BioGeneratorScreen() {
           </View>
         </View>
 
-        <TouchableOpacity onPress={generate} style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}>
-          <Ionicons name="sparkles-outline" size={18} color="#FFF" />
-          <Text style={styles.genBtnTxt}>Generate Bio</Text>
+        <TouchableOpacity
+          onPress={generate}
+          disabled={loading}
+          style={[styles.genBtn, { backgroundColor: ACCENT, borderRadius: colors.radius, marginHorizontal: 16 }]}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFF" />
+          ) : (
+            <>
+              <Ionicons name="sparkles-outline" size={18} color="#FFF" />
+              <Text style={styles.genBtnTxt}>Generate Bio</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {bios.length > 0 && bios.map((bio, i) => (

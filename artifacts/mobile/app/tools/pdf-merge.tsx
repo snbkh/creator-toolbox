@@ -8,9 +8,10 @@ import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacit
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
-interface PDFFile { id: string; name: string; size: number; }
+interface PDFFile { id: string; name: string; size: number; uri: string; }
 function fmtSize(b: number): string { return b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`; }
 function genId(): string { return Date.now().toString() + Math.random().toString(36).slice(2, 7); }
 
@@ -24,7 +25,7 @@ export default function PdfMergeScreen() {
   const addFiles = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false, multiple: true });
     if (!r.canceled) {
-      const newFiles = r.assets.map((a) => ({ id: genId(), name: a.name, size: a.size ?? 500 * 1024 }));
+      const newFiles = r.assets.map((a) => ({ id: genId(), name: a.name, size: a.size ?? 500 * 1024, uri: a.uri }));
       setFiles((prev) => [...prev, ...newFiles]);
       setDone(false);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
@@ -95,14 +96,24 @@ export default function PdfMergeScreen() {
               ))}
             </View>
 
-            <TouchableOpacity onPress={merge} disabled={loading || files.length < 2} style={[styles.mergeBtn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, opacity: files.length < 2 ? 0.5 : 1 }]}>
+            <TouchableOpacity onPress={merge} disabled={loading || files.length < 2} style={[styles.mergeBtn, { backgroundColor: done ? "#10B981" + "22" : ACCENT, borderColor: done ? "#10B981" : "transparent", borderWidth: done ? 1 : 0, borderRadius: colors.radius, marginHorizontal: 16, opacity: files.length < 2 ? 0.5 : 1 }]}>
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "merge"} size={20} color="#FFF" />
-                  <Text style={styles.mergeBtnTxt}>{done ? `Merged! ${fmtSize(totalSize * 0.95)}` : `Merge ${files.length} PDFs`}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "merge"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.mergeBtnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? "Merge Finished" : `Merge ${files.length} PDFs`}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && files[0] && (
+              <TouchableOpacity
+                onPress={() => shareFile(files[0].uri, `merged_${files.length}_files.pdf`, "application/pdf")}
+                style={[styles.mergeBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                <Text style={styles.mergeBtnTxt}>Save / Download PDF</Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
 

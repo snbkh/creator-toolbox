@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +15,8 @@ import {
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
+import { generateWithAi } from "@/utils/ai";
 
 type Category = "lifestyle" | "food" | "travel" | "fitness" | "product" | "motivation" | "humor";
 type Tone = "professional" | "casual" | "funny" | "inspirational" | "minimal";
@@ -238,15 +241,34 @@ function generateCaptions(topic: string, category: Category, tone: Tone): string
 
 export default function CaptionGeneratorScreen() {
   const colors = useColors();
+  const { selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey } = useApp();
   const [topic, setTopic] = useState("");
   const [category, setCategory] = useState<Category>("lifestyle");
   const [tone, setTone] = useState<Tone>("casual");
   const [captions, setCaptions] = useState<string[]>([]);
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
-    const results = generateCaptions(topic, category, tone);
+  const generate = async () => {
+    setLoading(true);
+    const fallback = () => generateCaptions(topic, category, tone);
+    
+    const systemInstruction = `You are a social media expert and copywriter. Generate exactly 3 distinct, creative, and engaging social media captions about the topic/keyword requested.
+Provide the output strictly as a JSON array of strings, like this:
+["caption option 1", "caption option 2", "caption option 3"]
+Do not include any markdown format blocks, additional explanations, or other texts. Just return the JSON array.`;
+    
+    const userPrompt = `Topic: "${topic || "Any interesting topic"}"\nCategory: "${category}"\nTone: "${tone}"`;
+    
+    const results = await generateWithAi(
+      systemInstruction,
+      userPrompt,
+      { provider: selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey },
+      fallback
+    );
+    
     setCaptions(results);
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -370,6 +392,7 @@ export default function CaptionGeneratorScreen() {
         {/* Generate Button */}
         <TouchableOpacity
           onPress={generate}
+          disabled={loading}
           style={[
             styles.genBtn,
             {
@@ -379,8 +402,14 @@ export default function CaptionGeneratorScreen() {
             },
           ]}
         >
-          <Ionicons name="sparkles-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.genBtnText}>Generate Captions</Text>
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="sparkles-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.genBtnText}>Generate Captions</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {/* Results */}

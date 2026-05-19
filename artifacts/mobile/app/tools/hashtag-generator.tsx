@@ -4,6 +4,7 @@ import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +15,8 @@ import {
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { useApp } from "@/context/AppContext";
+import { generateWithAi } from "@/utils/ai";
 
 type Platform = "instagram" | "tiktok" | "twitter" | "youtube" | "linkedin";
 type Niche = "lifestyle" | "food" | "travel" | "fitness" | "fashion" | "business" | "tech" | "art";
@@ -113,16 +116,35 @@ function generateHashtags(
 
 export default function HashtagGeneratorScreen() {
   const colors = useColors();
+  const { selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey } = useApp();
   const [keyword, setKeyword] = useState("");
   const [niche, setNiche] = useState<Niche>("lifestyle");
   const [platform, setPlatform] = useState<Platform>("instagram");
   const [count, setCount] = useState(15);
   const [hashtags, setHashtags] = useState<string[]>([]);
   const [copied, setCopied] = useState(false);
+  const [loading, setLoading] = useState(false);
 
-  const generate = () => {
-    const results = generateHashtags(keyword, niche, platform, count);
+  const generate = async () => {
+    setLoading(true);
+    const fallback = () => generateHashtags(keyword, niche, platform, count);
+    
+    const systemInstruction = `You are a social media specialist. Generate exactly ${count} relevant, trending, and active hashtags for the given keyword/topic, niche, and social media platform.
+Provide the output strictly as a JSON array of strings containing the hashtags (with the '#' prefix), like this:
+["#tag1", "#tag2", "#tag3"]
+Do not include any markdown format blocks, additional explanations, or other texts. Just return the JSON array.`;
+    
+    const userPrompt = `Keyword: "${keyword || "None"}"\nNiche: "${niche}"\nPlatform: "${platform}"\nCount: ${count}`;
+    
+    const results = await generateWithAi(
+      systemInstruction,
+      userPrompt,
+      { provider: selectedAiProvider, geminiKey, openaiKey, groqKey, claudeKey },
+      fallback
+    );
+    
     setHashtags(results);
+    setLoading(false);
     Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
   };
 
@@ -255,6 +277,7 @@ export default function HashtagGeneratorScreen() {
         {/* Generate */}
         <TouchableOpacity
           onPress={generate}
+          disabled={loading}
           style={[
             styles.genBtn,
             {
@@ -264,8 +287,14 @@ export default function HashtagGeneratorScreen() {
             },
           ]}
         >
-          <Ionicons name="sparkles-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.genBtnText}>Generate Hashtags</Text>
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" />
+          ) : (
+            <>
+              <Ionicons name="sparkles-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.genBtnText}>Generate Hashtags</Text>
+            </>
+          )}
         </TouchableOpacity>
 
         {/* Results */}
