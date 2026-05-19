@@ -6,6 +6,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
+import { useColors } from "@/hooks/useColors";
 
 export interface ProcessedFile {
   id: string;
@@ -156,4 +157,13 @@ export function useApp(): AppContextValue {
   const ctx = useContext(AppContext);
   if (!ctx) throw new Error("useApp must be used within AppProvider");
   return ctx;
+}
+
+/**
+ * useAppColors - use in components inside AppProvider.
+ * Respects the user's explicit isDarkMode setting from Settings.
+ */
+export function useAppColors() {
+  const { isDarkMode } = useApp();
+  return useColors(isDarkMode);
 }

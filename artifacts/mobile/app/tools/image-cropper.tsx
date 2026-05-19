@@ -46,7 +46,7 @@ export default function ImageCropperScreen() {
     const hasAspect = preset && preset.w !== null;
 
     const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: hasAspect ? [preset.w as number, preset.h as number] : undefined,
       quality: 0.9,

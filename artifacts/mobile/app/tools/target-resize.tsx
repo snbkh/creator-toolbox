@@ -58,7 +58,7 @@ export default function TargetResizeScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
     });
     if (!result.canceled && result.assets[0]) {

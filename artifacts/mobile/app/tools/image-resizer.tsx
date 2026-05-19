@@ -1,6 +1,7 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
@@ -19,6 +20,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 interface ImageInfo {
   uri: string;
@@ -51,6 +53,8 @@ export default function ImageResizerScreen() {
   const [lockAspect, setLockAspect] = useState(true);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [resizedUri, setResizedUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -59,7 +63,7 @@ export default function ImageResizerScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
     });
     if (!result.canceled && result.assets[0]) {
@@ -122,18 +126,40 @@ export default function ImageResizerScreen() {
     const { w, h } = getOutputDimensions();
     if (!w || !h) return;
     setLoading(true);
-    await new Promise<void>((resolve) => setTimeout(resolve, 900));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({
-      name: `resized_${w}x${h}.jpg`,
-      toolId: "image-resizer",
-      toolName: "Image Resizer",
-      originalSize: image.fileSize,
-      processedSize: Math.round(image.fileSize * (w * h) / (image.width * image.height)),
-      type: "image",
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri,
+        [{ resize: { width: w, height: h } }],
+        { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setResizedUri(result.uri);
+      setDone(true);
+      addProcessedFile({
+        name: `resized_${w}x${h}.jpg`,
+        toolId: "image-resizer",
+        toolName: "Image Resizer",
+        originalSize: image.fileSize,
+        processedSize: Math.round(image.fileSize * (w * h) / (image.width * image.height)),
+        type: "image",
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Resize Failed", "Could not resize the image.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveResized = async () => {
+    if (!resizedUri) return;
+    setSaving(true);
+    const { w, h } = getOutputDimensions();
+    const result = await saveImageToDevice(resizedUri, `resized_${w}x${h}.jpg`);
+    setSaving(false);
+    if (result === "saved") {
+      Alert.alert("✅ Saved!", "Image saved to your gallery in 'Creator Toolbox' album.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
   };
 
   const dims = getOutputDimensions();
@@ -338,6 +364,21 @@ export default function ImageResizerScreen() {
                 </>
               )}
             </TouchableOpacity>
+
+            {done && resizedUri && (
+              <TouchableOpacity
+                onPress={saveResized}
+                disabled={saving}
+                style={[styles.resizeBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16 }]}
+              >
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <Ionicons name="download-outline" size={20} color="#FFF" />
+                    <Text style={styles.resizeBtnText}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

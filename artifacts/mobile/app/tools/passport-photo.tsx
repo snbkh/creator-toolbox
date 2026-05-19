@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
@@ -17,6 +18,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const ACCENT = "#8B5CF6";
 
@@ -36,8 +38,10 @@ export default function PassportPhotoScreen() {
   const { addProcessedFile } = useApp();
   const [selectedPreset, setSelectedPreset] = useState("us_passport");
   const [image, setImage] = useState<string | null>(null);
+  const [processedUri, setProcessedUri] = useState<string | null>(null);
   const [fileSize, setFileSize] = useState(0);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
   const preset = PHOTO_PRESETS.find((p) => p.id === selectedPreset)!;
@@ -46,7 +50,7 @@ export default function PassportPhotoScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { Alert.alert("Permission Required", "Please allow photo library access."); return; }
     const r = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
       quality: 1,
@@ -62,11 +66,36 @@ export default function PassportPhotoScreen() {
   const process = async () => {
     if (!image) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `${preset.label.replace(/ /g, "_")}_photo.jpg`, toolId: "passport-photo", toolName: "Passport Photo Maker", originalSize: fileSize, processedSize: Math.min(preset.maxKB * 1024, fileSize * 0.4), type: "image" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const [wStr, hStr] = preset.px.split("×");
+      const width = parseInt(wStr || "600", 10);
+      const height = parseInt(hStr || "600", 10);
+
+      const result = await ImageManipulator.manipulateAsync(
+        image,
+        [{ resize: { width, height } }],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      setProcessedUri(result.uri);
+      setDone(true);
+      addProcessedFile({ name: `${preset.label.replace(/ /g, "_")}_photo.jpg`, toolId: "passport-photo", toolName: "Passport Photo Maker", originalSize: fileSize, processedSize: Math.min(preset.maxKB * 1024, fileSize * 0.4), type: "image" });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Processing Failed", "Could not create passport photo.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const savePhoto = async () => {
+    if (!processedUri) return;
+    setSaving(true);
+    const r = await saveImageToDevice(processedUri, `${preset.label.replace(/ /g, "_")}_photo.jpg`);
+    setSaving(false);
+    if (r === "saved") {
+      Alert.alert("✅ Saved!", "Passport photo saved to gallery in 'Creator Toolbox' album.");
+    }
   };
 
   return (
@@ -119,14 +148,27 @@ export default function PassportPhotoScreen() {
         )}
 
         {image && (
-          <TouchableOpacity onPress={process} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
-            {loading ? <ActivityIndicator color="#FFF" /> : (
-              <>
-                <MaterialCommunityIcons name={done ? "check-circle" : "card-account-details-outline"} size={20} color="#FFF" />
-                <Text style={styles.btnTxt}>{done ? "Photo Ready!" : `Create ${preset.label} Photo`}</Text>
-              </>
+          <>
+            <TouchableOpacity onPress={process} disabled={loading} style={[styles.btn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
+              {loading ? <ActivityIndicator color="#FFF" /> : (
+                <>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "card-account-details-outline"} size={20} color="#FFF" />
+                  <Text style={styles.btnTxt}>{done ? "Photo Ready!" : `Create ${preset.label} Photo`}</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {done && processedUri && (
+              <TouchableOpacity onPress={savePhoto} disabled={saving} style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <MaterialCommunityIcons name="download" size={20} color="#FFF" />
+                    <Text style={styles.btnTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </>
         )}
         <View style={{ height: 40 }} />
       </ScrollView>

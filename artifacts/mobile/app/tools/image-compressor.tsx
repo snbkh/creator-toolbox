@@ -1,15 +1,16 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  Platform,
+  GestureResponderEvent,
+  LayoutChangeEvent,
   ScrollView,
-  Slider,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -19,6 +20,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 interface ImageInfo {
   uri: string;
@@ -43,6 +45,60 @@ function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+// Custom Slider - replaces deprecated/removed react-native Slider
+function CustomSlider({
+  value,
+  minValue,
+  maxValue,
+  step,
+  accentColor,
+  trackColor,
+  onChange,
+}: {
+  value: number;
+  minValue: number;
+  maxValue: number;
+  step: number;
+  accentColor: string;
+  trackColor: string;
+  onChange: (v: number) => void;
+}) {
+  const trackWidth = useRef(0);
+
+  const handleLayout = (e: LayoutChangeEvent) => {
+    trackWidth.current = e.nativeEvent.layout.width;
+  };
+
+  const handleTouch = (e: GestureResponderEvent) => {
+    if (trackWidth.current === 0) return;
+    const x = e.nativeEvent.locationX;
+    const ratio = Math.max(0, Math.min(1, x / trackWidth.current));
+    const raw = minValue + ratio * (maxValue - minValue);
+    const stepped = Math.round(raw / step) * step;
+    const clamped = Math.max(minValue, Math.min(maxValue, stepped));
+    onChange(parseFloat(clamped.toFixed(2)));
+  };
+
+  const fillPct = ((value - minValue) / (maxValue - minValue)) * 100;
+  const thumbPct = Math.max(0, Math.min(100, fillPct));
+
+  return (
+    <View
+      style={styles.sliderWrap}
+      onLayout={handleLayout}
+      onStartShouldSetResponder={() => true}
+      onMoveShouldSetResponder={() => true}
+      onResponderGrant={handleTouch}
+      onResponderMove={handleTouch}
+    >
+      <View style={[styles.sliderTrack, { backgroundColor: trackColor }]}>
+        <View style={[styles.sliderFill, { width: `${fillPct}%` as `${number}%`, backgroundColor: accentColor }]} />
+      </View>
+      <View style={[styles.sliderThumb, { left: `${thumbPct}%` as `${number}%`, borderColor: accentColor, backgroundColor: accentColor }]} />
+    </View>
+  );
+}
+
 export default function ImageCompressorScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
@@ -51,6 +107,8 @@ export default function ImageCompressorScreen() {
   const [preset, setPreset] = useState<Preset>("medium");
   const [loading, setLoading] = useState(false);
   const [processed, setProcessed] = useState(false);
+  const [compressedUri, setCompressedUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const estimatedSize = image ? Math.round(image.fileSize * quality * 0.95) : 0;
   const savePct = image ? Math.round((1 - estimatedSize / image.fileSize) * 100) : 0;
@@ -62,7 +120,7 @@ export default function ImageCompressorScreen() {
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaType.Images,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       quality: 1,
       allowsEditing: false,
     });
@@ -88,18 +146,40 @@ export default function ImageCompressorScreen() {
   const compress = async () => {
     if (!image) return;
     setLoading(true);
-    await new Promise<void>((resolve) => setTimeout(resolve, 1000));
-    setLoading(false);
-    setProcessed(true);
-    addProcessedFile({
-      name: `compressed_image.jpg`,
-      toolId: "image-compressor",
-      toolName: "Image Compressor",
-      originalSize: image.fileSize,
-      processedSize: estimatedSize,
-      type: "image",
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      // Real compression using expo-image-manipulator
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri,
+        [], // no resize, just compress
+        { compress: quality, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setCompressedUri(result.uri);
+      setProcessed(true);
+      addProcessedFile({
+        name: `compressed_image.jpg`,
+        toolId: "image-compressor",
+        toolName: "Image Compressor",
+        originalSize: image.fileSize,
+        processedSize: estimatedSize,
+        type: "image",
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert("Compression Failed", "Could not compress the image.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveImage = async () => {
+    if (!compressedUri) return;
+    setSaving(true);
+    const result = await saveImageToDevice(compressedUri, `compressed_${quality * 100}pct.jpg`);
+    setSaving(false);
+    if (result === "saved") {
+      Alert.alert("✅ Saved!", "Image saved to your gallery in 'Creator Toolbox' album.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
   };
 
   return (
@@ -228,36 +308,19 @@ export default function ImageCompressorScreen() {
               </View>
               <View style={styles.sliderRow}>
                 <Text style={[styles.sliderEnd, { color: colors.mutedForeground }]}>Smaller</Text>
-                <View style={styles.sliderWrap}>
-                  {Platform.OS !== "web" ? (
-                    <Slider
-                      minimumValue={0.1}
-                      maximumValue={1.0}
-                      value={quality}
-                      onValueChange={(v) => {
-                        setQuality(v);
-                        setPreset("original");
-                        setProcessed(false);
-                      }}
-                      minimumTrackTintColor="#8B5CF6"
-                      maximumTrackTintColor={colors.border}
-                      thumbTintColor="#8B5CF6"
-                      step={0.05}
-                    />
-                  ) : (
-                    <View style={[styles.webSliderTrack, { backgroundColor: colors.border }]}>
-                      <View
-                        style={[
-                          styles.webSliderFill,
-                          {
-                            width: `${quality * 100}%`,
-                            backgroundColor: "#8B5CF6",
-                          },
-                        ]}
-                      />
-                    </View>
-                  )}
-                </View>
+                <CustomSlider
+                  value={quality}
+                  minValue={0.1}
+                  maxValue={1.0}
+                  step={0.05}
+                  accentColor="#8B5CF6"
+                  trackColor={colors.border}
+                  onChange={(v) => {
+                    setQuality(v);
+                    setPreset("original");
+                    setProcessed(false);
+                  }}
+                />
                 <Text style={[styles.sliderEnd, { color: colors.mutedForeground }]}>Better</Text>
               </View>
             </View>
@@ -290,13 +353,21 @@ export default function ImageCompressorScreen() {
               )}
             </TouchableOpacity>
 
-            {processed && (
-              <View style={[styles.successNote, { backgroundColor: "#10B981" + "11", borderRadius: colors.radius, marginHorizontal: 16 }]}>
-                <Ionicons name="information-circle-outline" size={16} color="#10B981" />
-                <Text style={[styles.successNoteText, { color: "#10B981" }]}>
-                  Saved to file history. Install the full APK for direct download support.
-                </Text>
-              </View>
+            {processed && compressedUri && (
+              <TouchableOpacity
+                onPress={saveImage}
+                disabled={saving}
+                style={[styles.saveBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16 }]}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <Ionicons name="download-outline" size={20} color="#FFF" />
+                    <Text style={styles.saveBtnText}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
           </>
         )}
@@ -419,6 +490,33 @@ const styles = StyleSheet.create({
   },
   sliderWrap: {
     flex: 1,
+    height: 36,
+    justifyContent: "center",
+    position: "relative",
+  },
+  sliderTrack: {
+    height: 4,
+    borderRadius: 2,
+    overflow: "hidden",
+  },
+  sliderFill: {
+    height: "100%",
+    borderRadius: 2,
+  },
+  sliderThumb: {
+    position: "absolute",
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 2,
+    top: "50%",
+    marginTop: -10,
+    marginLeft: -10,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+    elevation: 3,
   },
   webSliderTrack: {
     height: 4,
@@ -454,5 +552,18 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontFamily: "Inter_400Regular",
     lineHeight: 18,
+  },
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 16,
+    gap: 8,
+    marginBottom: 12,
+  },
+  saveBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#FFFFFF",
   },
 });

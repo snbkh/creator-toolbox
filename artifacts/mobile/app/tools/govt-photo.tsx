@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
@@ -17,6 +18,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const ACCENT = "#7C3AED";
 
@@ -36,7 +38,9 @@ export default function GovtPhotoScreen() {
   const { addProcessedFile } = useApp();
   const [selectedPreset, setSelectedPreset] = useState("ssc");
   const [photoUri, setPhotoUri] = useState<string | null>(null);
+  const [processedUri, setProcessedUri] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [saving, setSaving] = useState(false);
   const [done, setDone] = useState(false);
 
   const preset = GOVT_PRESETS.find((p) => p.id === selectedPreset)!;
@@ -44,18 +48,43 @@ export default function GovtPhotoScreen() {
   const pickPhoto = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { Alert.alert("Permission Required", "Allow photo library access."); return; }
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaType.Images, allowsEditing: true, aspect: [1, 1], quality: 1 });
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, allowsEditing: true, aspect: [1, 1], quality: 1 });
     if (!r.canceled && r.assets[0]) { setPhotoUri(r.assets[0].uri); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
   };
 
   const process = async () => {
     if (!photoUri) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1300));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `${preset.label.replace(/ /g, "_")}_photo.jpg`, toolId: "govt-photo", toolName: "Govt Photo & Signature", originalSize: 800 * 1024, processedSize: 40 * 1024, type: "image" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const [wStr, hStr] = preset.photoPx.split("×");
+      const width = parseInt(wStr || "300", 10);
+      const height = parseInt(hStr || "400", 10);
+
+      const result = await ImageManipulator.manipulateAsync(
+        photoUri,
+        [{ resize: { width, height } }],
+        { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG }
+      );
+
+      setProcessedUri(result.uri);
+      setDone(true);
+      addProcessedFile({ name: `${preset.label.replace(/ /g, "_")}_photo.jpg`, toolId: "govt-photo", toolName: "Govt Photo & Signature", originalSize: 800 * 1024, processedSize: 40 * 1024, type: "image" });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch {
+      Alert.alert("Processing Failed", "Could not process the image.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const savePhoto = async () => {
+    if (!processedUri) return;
+    setSaving(true);
+    const r = await saveImageToDevice(processedUri, `${preset.label.replace(/ /g, "_")}_photo.jpg`);
+    setSaving(false);
+    if (r === "saved") {
+      Alert.alert("✅ Saved!", "Processed photo saved to gallery in 'Creator Toolbox' album.");
+    }
   };
 
   const exams = GOVT_PRESETS.filter((p) => p.category === "Exam");
@@ -130,14 +159,27 @@ export default function GovtPhotoScreen() {
         )}
 
         {photoUri && (
-          <TouchableOpacity onPress={process} disabled={loading} style={[styles.processBtn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
-            {loading ? <ActivityIndicator color="#FFF" /> : (
-              <>
-                <MaterialCommunityIcons name={done ? "check-circle" : "badge-account-outline"} size={20} color="#FFF" />
-                <Text style={styles.processTxt}>{done ? "Photo & Signature Ready!" : `Process for ${preset.label}`}</Text>
-              </>
+          <>
+            <TouchableOpacity onPress={process} disabled={loading} style={[styles.processBtn, { backgroundColor: done ? "#10B981" : ACCENT, borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
+              {loading ? <ActivityIndicator color="#FFF" /> : (
+                <>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "badge-account-outline"} size={20} color="#FFF" />
+                  <Text style={styles.processTxt}>{done ? "Photo & Signature Ready!" : `Process for ${preset.label}`}</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            {done && processedUri && (
+              <TouchableOpacity onPress={savePhoto} disabled={saving} style={[styles.processBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 12 }]}>
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <MaterialCommunityIcons name="download" size={20} color="#FFF" />
+                    <Text style={styles.processTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
             )}
-          </TouchableOpacity>
+          </>
         )}
         <View style={{ height: 40 }} />
       </ScrollView>

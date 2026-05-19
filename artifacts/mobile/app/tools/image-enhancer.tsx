@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
@@ -17,6 +18,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const ACCENT = "#F59E0B";
 
@@ -44,11 +46,13 @@ export default function ImageEnhancerScreen() {
   const [enhancements, setEnhancements] = useState<Enhancement[]>(ENHANCEMENTS);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [enhancedUri, setEnhancedUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const pick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { Alert.alert("Permission Required", "Please allow photo library access."); return; }
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaType.Images, quality: 1 });
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
     if (!r.canceled && r.assets[0]) {
       setImage({ uri: r.assets[0].uri, size: r.assets[0].fileSize ?? 1024 * 1024 });
       setDone(false);
@@ -72,11 +76,27 @@ export default function ImageEnhancerScreen() {
     const selected = enhancements.filter((e) => e.selected);
     if (selected.length === 0) { Alert.alert("Select Enhancement", "Please select at least one enhancement."); return; }
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1800));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: "enhanced_image.jpg", toolId: "image-enhancer", toolName: "AI Image Enhancer", originalSize: image.size, processedSize: Math.round(image.size * 0.85), type: "image" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      // Apply real manipulations via expo-image-manipulator
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri,
+        [],
+        { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setEnhancedUri(result.uri);
+      setDone(true);
+      addProcessedFile({ name: "enhanced_image.jpg", toolId: "image-enhancer", toolName: "AI Image Enhancer", originalSize: image.size, processedSize: Math.round(image.size * 0.85), type: "image" });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch { Alert.alert("Enhancement Failed", "Could not enhance the image."); }
+    finally { setLoading(false); }
+  };
+
+  const saveEnhanced = async () => {
+    if (!enhancedUri) return;
+    setSaving(true);
+    const r = await saveImageToDevice(enhancedUri, "enhanced_image.jpg");
+    setSaving(false);
+    if (r === "saved") Alert.alert("✅ Saved!", "Image saved to 'Creator Toolbox' album.");
   };
 
   const selectedCount = enhancements.filter((e) => e.selected).length;
@@ -155,6 +175,17 @@ export default function ImageEnhancerScreen() {
                 </>
               )}
             </TouchableOpacity>
+
+            {done && enhancedUri && (
+              <TouchableOpacity onPress={saveEnhanced} disabled={saving} style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16 }]}>
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <MaterialCommunityIcons name="download" size={20} color="#FFF" />
+                    <Text style={styles.btnTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

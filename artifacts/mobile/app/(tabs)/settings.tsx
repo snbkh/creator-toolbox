@@ -14,11 +14,12 @@ import {
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 import { useApp } from "@/context/AppContext";
+import { useAppColors } from "@/context/AppContext";
 import { TOOLS } from "@/constants/tools";
 import { useColors } from "@/hooks/useColors";
 
 export default function SettingsScreen() {
-  const colors = useColors();
+  const colors = useAppColors();
   const insets = useSafeAreaInsets();
   const { isDarkMode, setDarkMode, clearHistory, processedFiles, favoriteTools } = useApp();
   const isWeb = Platform.OS === "web";
@@ -161,7 +162,7 @@ function SettingSection({
   title: string;
   children: React.ReactNode;
 }) {
-  const colors = useColors();
+  const colors = useAppColors();
   return (
     <View style={styles.section}>
       <Text style={[styles.sectionTitle, { color: colors.mutedForeground }]}>

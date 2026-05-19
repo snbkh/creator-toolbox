@@ -1,6 +1,7 @@
 import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
+import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
@@ -17,6 +18,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const ACCENT = "#06B6D4";
 
@@ -39,11 +41,13 @@ export default function ImageConverterScreen() {
   const [toFormat, setToFormat] = useState<Format>("WEBP");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [convertedUri, setConvertedUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const pick = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") { Alert.alert("Permission Required", "Please allow photo library access."); return; }
-    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaType.Images, quality: 1 });
+    const r = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 1 });
     if (!r.canceled && r.assets[0]) {
       const a = r.assets[0];
       setImage({ uri: a.uri, width: a.width, height: a.height, fileSize: a.fileSize ?? 400 * 1024 });
@@ -55,13 +59,35 @@ export default function ImageConverterScreen() {
   const convert = async () => {
     if (!image) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setDone(true);
-    const fmt = FORMATS.find((f) => f.id === toFormat)!;
-    const sizeMultiplier = { JPG: 0.4, PNG: 0.9, WEBP: 0.3, BMP: 3, TIFF: 5 }[toFormat];
-    addProcessedFile({ name: `converted.${toFormat.toLowerCase()}`, toolId: "image-converter", toolName: "Image Converter", originalSize: image.fileSize, processedSize: Math.round(image.fileSize * sizeMultiplier), type: "image" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const formatMap: Record<string, ImageManipulator.SaveFormat> = {
+        JPG: ImageManipulator.SaveFormat.JPEG,
+        PNG: ImageManipulator.SaveFormat.PNG,
+        WEBP: ImageManipulator.SaveFormat.WEBP,
+        BMP: ImageManipulator.SaveFormat.JPEG, // fallback
+        TIFF: ImageManipulator.SaveFormat.JPEG, // fallback
+      };
+      const quality = { JPG: 0.85, PNG: 1, WEBP: 0.8, BMP: 1, TIFF: 1 }[toFormat] ?? 0.9;
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri, [],
+        { compress: quality, format: formatMap[toFormat] ?? ImageManipulator.SaveFormat.JPEG }
+      );
+      setConvertedUri(result.uri);
+      setDone(true);
+      const sizeMultiplier = { JPG: 0.4, PNG: 0.9, WEBP: 0.3, BMP: 3, TIFF: 5 }[toFormat];
+      addProcessedFile({ name: `converted.${toFormat.toLowerCase()}`, toolId: "image-converter", toolName: "Image Converter", originalSize: image.fileSize, processedSize: Math.round(image.fileSize * sizeMultiplier), type: "image" });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch { Alert.alert("Convert Failed", "Could not convert the image."); }
+    finally { setLoading(false); }
+  };
+
+  const saveConverted = async () => {
+    if (!convertedUri) return;
+    setSaving(true);
+    const ext = toFormat === "PNG" ? "png" : toFormat === "WEBP" ? "webp" : "jpg";
+    const r = await saveImageToDevice(convertedUri, `converted.${ext}`);
+    setSaving(false);
+    if (r === "saved") Alert.alert("✅ Saved!", `Image saved as ${toFormat} to 'Creator Toolbox' album.`);
   };
 
   const fmt = FORMATS.find((f) => f.id === toFormat)!;
@@ -121,6 +147,17 @@ export default function ImageConverterScreen() {
                 </>
               )}
             </TouchableOpacity>
+
+            {done && convertedUri && (
+              <TouchableOpacity onPress={saveConverted} disabled={saving} style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16 }]}>
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <MaterialCommunityIcons name="download" size={20} color="#FFF" />
+                    <Text style={styles.btnTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

@@ -5,6 +5,7 @@ import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Keyboard,
   ScrollView,
   StyleSheet,
@@ -16,6 +17,7 @@ import {
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const PRESETS = [
   { label: "URL", placeholder: "https://example.com" },
@@ -39,6 +41,7 @@ export default function QrGeneratorScreen() {
   const [size, setSize] = useState(250);
   const [bgColor, setBgColor] = useState("ffffff");
   const [fgColor, setFgColor] = useState("000000");
+  const [saving, setSaving] = useState(false);
 
   const generate = () => {
     if (!text.trim()) return;
@@ -219,12 +222,33 @@ export default function QrGeneratorScreen() {
             <Text style={[styles.qrContent, { color: colors.mutedForeground }]} numberOfLines={2}>
               {qrContent}
             </Text>
-            <View style={[styles.qrHint, { backgroundColor: "#0EA5E9" + "11", borderRadius: 8 }]}>
-              <Ionicons name="information-circle-outline" size={14} color="#0EA5E9" />
-              <Text style={[styles.qrHintText, { color: "#0EA5E9" }]}>
-                Screenshot to save your QR code
-              </Text>
-            </View>
+
+            <TouchableOpacity
+              onPress={async () => {
+                if (!qrUrl) return;
+                setSaving(true);
+                const r = await saveImageToDevice(qrUrl, `qr_${Date.now()}.png`);
+                setSaving(false);
+                if (r === "saved") {
+                  Alert.alert("✅ Saved!", "QR Code saved to your gallery in 'Creator Toolbox' album.");
+                  Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                }
+              }}
+              disabled={saving}
+              style={[
+                styles.saveBtn,
+                { backgroundColor: "#10B981", borderRadius: colors.radius, width: "100%", marginTop: 8 },
+              ]}
+            >
+              {saving ? (
+                <ActivityIndicator color="#FFF" />
+              ) : (
+                <>
+                  <Ionicons name="download-outline" size={18} color="#FFF" />
+                  <Text style={styles.saveBtnText}>Save to Gallery</Text>
+                </>
+              )}
+            </TouchableOpacity>
           </View>
         )}
         <View style={{ height: 40 }} />
@@ -339,5 +363,17 @@ const styles = StyleSheet.create({
   qrHintText: {
     fontSize: 12,
     fontFamily: "Inter_500Medium",
+  },
+  saveBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 14,
+    gap: 8,
+  },
+  saveBtnText: {
+    fontSize: 15,
+    fontFamily: "Inter_700Bold",
+    color: "#FFF",
   },
 });
