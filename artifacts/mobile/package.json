@@ -70,6 +70,7 @@
     "expo-media-library": "~18.2.1",
     "expo-sharing": "~14.0.8",
     "pdf-lib": "^1.17.1",
+    "react-native-view-shot": "^5.1.0",
     "react": "19.1.0",
     "react-compiler-runtime": "^19.0.0-beta-e993439-20250117",
     "react-native": "0.81.5"

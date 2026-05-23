@@ -31,7 +31,7 @@ export const CATEGORIES: Category[] = [
     iconSet: "Ionicons",
     gradientStart: "#7C3AED",
     gradientEnd: "#4F46E5",
-    toolCount: 13,
+    toolCount: 14,
   },
   {
     id: "pdf",
@@ -201,6 +201,17 @@ export const TOOLS: Tool[] = [
     category: "image",
     route: "govt-photo",
     implemented: true,
+  },
+  {
+    id: "image-watermark",
+    name: "Image Watermark",
+    description: "Add text watermarks with position & opacity control",
+    icon: "watermark",
+    iconSet: "MaterialCommunityIcons",
+    category: "image",
+    route: "image-watermark",
+    implemented: true,
+    trending: true,
   },
   // PDF TOOLS
   {

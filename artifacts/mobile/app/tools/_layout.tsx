@@ -37,6 +37,7 @@ export default function ToolsLayout() {
       <Stack.Screen name="pdf-unlock" />
       <Stack.Screen name="file-size-analyzer" />
       <Stack.Screen name="qr-scanner" />
+      <Stack.Screen name="image-watermark" />
       <Stack.Screen name="coming-soon" />
     </Stack>
   );
