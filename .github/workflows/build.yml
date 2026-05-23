@@ -10,6 +10,8 @@ jobs:
   build:
     name: Trigger EAS Build
     runs-on: ubuntu-latest
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     steps:
       - name: 🏗 Checkout Repository
         uses: actions/checkout@v4
@@ -17,7 +19,7 @@ jobs:
       - name: ⚙️ Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
 
       - name: ⚙️ Setup PNPM
         uses: pnpm/action-setup@v4
