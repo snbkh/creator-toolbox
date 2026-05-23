@@ -30,6 +30,7 @@ interface ImageInfo {
 }
 
 type ResizeMode = "custom" | "percentage" | "preset";
+type UnitType = "px" | "inch" | "cm" | "mm";
 
 const SOCIAL_PRESETS = [
   { label: "Instagram Post", width: 1080, height: 1080, desc: "1:1 square" },
@@ -42,11 +43,15 @@ const SOCIAL_PRESETS = [
   { label: "ID Card", width: 300, height: 240, desc: "standard ID" },
 ];
 
+const DPI_PRESETS = [72, 96, 150, 300];
+
 export default function ImageResizerScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
   const [image, setImage] = useState<ImageInfo | null>(null);
   const [mode, setMode] = useState<ResizeMode>("custom");
+  const [unit, setUnit] = useState<UnitType>("px");
+  const [dpi, setDpi] = useState<number>(300);
   const [width, setWidth] = useState("800");
   const [height, setHeight] = useState("600");
   const [percentage, setPercentage] = useState("50");
@@ -74,6 +79,8 @@ export default function ImageResizerScreen() {
         height: asset.height,
         fileSize: asset.fileSize ?? 300 * 1024,
       });
+      // Set to source px dimension initially
+      setUnit("px");
       setWidth(String(asset.width));
       setHeight(String(asset.height));
       setDone(false);
@@ -81,11 +88,74 @@ export default function ImageResizerScreen() {
     }
   };
 
+  const handleUnitChange = (newUnit: UnitType) => {
+    if (!width || !height || newUnit === unit) {
+      setUnit(newUnit);
+      return;
+    }
+
+    // Convert current value to absolute pixels first
+    let pxW = parseFloat(width) || 0;
+    let pxH = parseFloat(height) || 0;
+    if (unit !== "px") {
+      let currentFactor = dpi;
+      if (unit === "cm") currentFactor = dpi / 2.54;
+      else if (unit === "mm") currentFactor = dpi / 25.4;
+      pxW = pxW * currentFactor;
+      pxH = pxH * currentFactor;
+    }
+
+    // Convert pixels to target unit
+    let targetW = pxW;
+    let targetH = pxH;
+    if (newUnit !== "px") {
+      let targetFactor = dpi;
+      if (newUnit === "cm") targetFactor = dpi / 2.54;
+      else if (newUnit === "mm") targetFactor = dpi / 25.4;
+      targetW = pxW / targetFactor;
+      targetH = pxH / targetFactor;
+    }
+
+    const decimals = newUnit === "px" ? 0 : 2;
+    setWidth(targetW.toFixed(decimals));
+    setHeight(targetH.toFixed(decimals));
+    setUnit(newUnit);
+    setDone(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
+  const handleDpiChange = (newDpi: number) => {
+    if (newDpi === dpi) return;
+    // When DPI changes, keep physical size target intact and adjust computed pixel widths accordingly
+    if (unit !== "px") {
+      // Calculate original pixels based on previous DPI
+      let factorPrev = dpi;
+      if (unit === "cm") factorPrev = dpi / 2.54;
+      else if (unit === "mm") factorPrev = dpi / 25.4;
+
+      const pxW = (parseFloat(width) || 0) * factorPrev;
+      const pxH = (parseFloat(height) || 0) * factorPrev;
+
+      // Re-express values in the new DPI
+      let factorNew = newDpi;
+      if (unit === "cm") factorNew = newDpi / 2.54;
+      else if (unit === "mm") factorNew = newDpi / 25.4;
+
+      setWidth((pxW / factorNew).toFixed(2));
+      setHeight((pxH / factorNew).toFixed(2));
+    }
+    setDpi(newDpi);
+    setDone(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+  };
+
   const onWidthChange = (val: string) => {
     setWidth(val);
     if (lockAspect && image && val) {
       const ratio = image.height / image.width;
-      setHeight(String(Math.round(parseInt(val, 10) * ratio)));
+      const numericVal = parseFloat(val) || 0;
+      const decimals = unit === "px" ? 0 : 2;
+      setHeight((numericVal * ratio).toFixed(decimals));
     }
     setDone(false);
   };
@@ -94,37 +164,53 @@ export default function ImageResizerScreen() {
     setHeight(val);
     if (lockAspect && image && val) {
       const ratio = image.width / image.height;
-      setWidth(String(Math.round(parseInt(val, 10) * ratio)));
+      const numericVal = parseFloat(val) || 0;
+      const decimals = unit === "px" ? 0 : 2;
+      setWidth((numericVal * ratio).toFixed(decimals));
     }
     setDone(false);
   };
 
   const applyPreset = (preset: typeof SOCIAL_PRESETS[0]) => {
+    setUnit("px");
     setWidth(String(preset.width));
     setHeight(String(preset.height));
     setMode("custom");
     setDone(false);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
   };
 
   const getOutputDimensions = (): { w: number; h: number } => {
     if (!image) return { w: 0, h: 0 };
     if (mode === "percentage") {
-      const pct = parseFloat(percentage) / 100;
+      const pct = parseFloat(percentage) / 100 || 0.5;
       return {
         w: Math.round(image.width * pct),
         h: Math.round(image.height * pct),
       };
     }
+    const wVal = parseFloat(width) || 0;
+    const hVal = parseFloat(height) || 0;
+    if (unit === "px") {
+      return { w: Math.round(wVal), h: Math.round(hVal) };
+    }
+    let factor = dpi;
+    if (unit === "cm") factor = dpi / 2.54;
+    else if (unit === "mm") factor = dpi / 25.4;
+
     return {
-      w: parseInt(width, 10) || 0,
-      h: parseInt(height, 10) || 0,
+      w: Math.round(wVal * factor),
+      h: Math.round(hVal * factor),
     };
   };
 
   const resize = async () => {
     if (!image) return;
     const { w, h } = getOutputDimensions();
-    if (!w || !h) return;
+    if (!w || !h) {
+      Alert.alert("Invalid Size", "Please specify a non-zero width and height.");
+      return;
+    }
     setLoading(true);
     try {
       const result = await ImageManipulator.manipulateAsync(
@@ -169,10 +255,10 @@ export default function ImageResizerScreen() {
       <Stack.Screen options={{ headerShown: false }} />
       <ToolHeader
         title="Image Resizer"
-        subtitle="Resize images to any dimension"
+        subtitle="Resize images to any physical or pixel dimension"
         accentColor="#0EA5E9"
       />
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContent}>
         {/* Pick Image */}
         {!image ? (
           <TouchableOpacity
@@ -227,36 +313,88 @@ export default function ImageResizerScreen() {
 
             {/* Custom Mode */}
             {mode === "custom" && (
-              <View style={[styles.dimCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
-                <View style={styles.dimRow}>
-                  <View style={styles.dimField}>
-                    <Text style={[styles.dimLabel, { color: colors.mutedForeground }]}>WIDTH (px)</Text>
-                    <TextInput
-                      style={[styles.dimInput, { color: colors.foreground, borderColor: "#0EA5E9" }]}
-                      value={width}
-                      onChangeText={onWidthChange}
-                      keyboardType="numeric"
-                    />
-                  </View>
-                  <Text style={[styles.dimX, { color: colors.mutedForeground }]}>×</Text>
-                  <View style={styles.dimField}>
-                    <Text style={[styles.dimLabel, { color: colors.mutedForeground }]}>HEIGHT (px)</Text>
-                    <TextInput
-                      style={[styles.dimInput, { color: colors.foreground, borderColor: "#0EA5E9" }]}
-                      value={height}
-                      onChangeText={onHeightChange}
-                      keyboardType="numeric"
-                    />
-                  </View>
+              <View style={{ gap: 12 }}>
+                {/* Unit selector */}
+                <View style={styles.unitRow}>
+                  {([["px", "Pixels (px)"], ["inch", "Inches (in)"], ["cm", "Centimeters (cm)"], ["mm", "Millimeters (mm)"]] as [UnitType, string][]).map(([u, label]) => (
+                    <TouchableOpacity
+                      key={u}
+                      onPress={() => handleUnitChange(u)}
+                      style={[
+                        styles.unitTab,
+                        {
+                          backgroundColor: unit === u ? "#0EA5E9" + "18" : colors.card,
+                          borderColor: unit === u ? "#0EA5E9" : colors.border,
+                          borderRadius: 8,
+                        },
+                      ]}
+                    >
+                      <Text style={[styles.unitTabText, { color: unit === u ? "#0EA5E9" : colors.foreground }]}>
+                        {label.split(" ")[0]}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
                 </View>
-                <View style={[styles.lockRow, { borderTopColor: colors.border }]}>
-                  <Text style={[styles.lockLabel, { color: colors.foreground }]}>Lock Aspect Ratio</Text>
-                  <Switch
-                    value={lockAspect}
-                    onValueChange={setLockAspect}
-                    trackColor={{ false: colors.muted, true: "#0EA5E9" }}
-                    thumbColor="#FFFFFF"
-                  />
+
+                {/* Custom dimensions inputs */}
+                <View style={[styles.dimCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+                  <View style={styles.dimRow}>
+                    <View style={styles.dimField}>
+                      <Text style={[styles.dimLabel, { color: colors.mutedForeground }]}>WIDTH ({unit})</Text>
+                      <TextInput
+                        style={[styles.dimInput, { color: colors.foreground, borderColor: "#0EA5E9" }]}
+                        value={width}
+                        onChangeText={onWidthChange}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <Text style={[styles.dimX, { color: colors.mutedForeground }]}>×</Text>
+                    <View style={styles.dimField}>
+                      <Text style={[styles.dimLabel, { color: colors.mutedForeground }]}>HEIGHT ({unit})</Text>
+                      <TextInput
+                        style={[styles.dimInput, { color: colors.foreground, borderColor: "#0EA5E9" }]}
+                        value={height}
+                        onChangeText={onHeightChange}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+
+                  {/* DPI selector (visible only for physical dimensions) */}
+                  {unit !== "px" && (
+                    <View style={[styles.dpiContainer, { borderTopWidth: 1, borderTopColor: colors.border }]}>
+                      <Text style={[styles.dimLabel, { color: colors.mutedForeground }]}>DPI RESOLUTION (FOR CONVERSION)</Text>
+                      <View style={styles.dpiPresets}>
+                        {DPI_PRESETS.map((d) => (
+                          <TouchableOpacity
+                            key={d}
+                            onPress={() => handleDpiChange(d)}
+                            style={[
+                              styles.dpiPresetBtn,
+                              {
+                                backgroundColor: dpi === d ? "#0EA5E9" : colors.muted,
+                                borderRadius: 6,
+                              },
+                            ]}
+                          >
+                            <Text style={[styles.dpiPresetTxt, { color: dpi === d ? "#FFF" : colors.foreground }]}>
+                              {d} DPI
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={[styles.lockRow, { borderTopColor: colors.border }]}>
+                    <Text style={[styles.lockLabel, { color: colors.foreground }]}>Lock Aspect Ratio</Text>
+                    <Switch
+                      value={lockAspect}
+                      onValueChange={setLockAspect}
+                      trackColor={{ false: colors.muted, true: "#0EA5E9" }}
+                      thumbColor="#FFFFFF"
+                    />
+                  </View>
                 </View>
               </View>
             )}
@@ -327,12 +465,17 @@ export default function ImageResizerScreen() {
               </View>
             )}
 
-            {/* Output info */}
+            {/* Real-time output calculation info */}
             {dims.w > 0 && dims.h > 0 && (
               <View style={[styles.outputInfo, { backgroundColor: "#0EA5E9" + "11", borderRadius: colors.radius, marginHorizontal: 16 }]}>
                 <Text style={[styles.outputText, { color: "#0EA5E9" }]}>
-                  Output: {dims.w} x {dims.h} px
+                  Computed Output Dimensions: {dims.w} x {dims.h} px
                 </Text>
+                {unit !== "px" && mode === "custom" && (
+                  <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 2 }}>
+                    Based on {dpi} DPI conversion factor
+                  </Text>
+                )}
               </View>
             )}
 
@@ -355,7 +498,7 @@ export default function ImageResizerScreen() {
               ) : done ? (
                 <>
                   <Ionicons name="checkmark-circle" size={20} color="#FFFFFF" />
-                  <Text style={styles.resizeBtnText}>Resized to {dims.w}x{dims.h}</Text>
+                  <Text style={styles.resizeBtnText}>Resized to {dims.w}x{dims.h} px</Text>
                 </>
               ) : (
                 <>
@@ -389,6 +532,7 @@ export default function ImageResizerScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollContent: { paddingBottom: 30 },
   dropzone: {
     alignItems: "center",
     justifyContent: "center",
@@ -448,6 +592,39 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
+  unitRow: {
+    flexDirection: "row",
+    marginHorizontal: 16,
+    gap: 6,
+    justifyContent: "space-between",
+  },
+  unitTab: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    borderWidth: 1,
+  },
+  unitTabText: {
+    fontSize: 12,
+    fontFamily: "Inter_600SemiBold",
+  },
+  dpiContainer: {
+    padding: 14,
+    gap: 8,
+  },
+  dpiPresets: {
+    flexDirection: "row",
+    gap: 8,
+  },
+  dpiPresetBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+  },
+  dpiPresetTxt: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+  },
   dimCard: {
     borderWidth: 1,
     marginBottom: 12,
@@ -464,7 +641,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   dimLabel: {
-    fontSize: 10,
+    fontSize: 9,
     fontFamily: "Inter_700Bold",
     letterSpacing: 0.8,
   },
@@ -547,7 +724,7 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   outputText: {
-    fontSize: 14,
+    fontSize: 13,
     fontFamily: "Inter_600SemiBold",
   },
   resizeBtn: {

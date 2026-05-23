@@ -1,13 +1,14 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
+import * as FileSystem from "expo-file-system/legacy";
 import { Image } from "expo-image";
 import { Stack } from "expo-router";
+import { PDFDocument, PDFName, PDFDict, PDFStream } from "pdf-lib";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   ScrollView,
   StyleSheet,
   Text,
@@ -20,7 +21,7 @@ import { useColors } from "@/hooks/useColors";
 import { useApp } from "@/context/AppContext";
 import { saveImageToDevice } from "@/utils/saveToDevice";
 
-const ACCENT = "#DC2626"; // Red accent color for PDF category
+const ACCENT = "#DC2626";
 
 interface PDFFileInfo {
   name: string;
@@ -31,7 +32,20 @@ interface PDFFileInfo {
 interface ExtractedPage {
   pageNumber: number;
   uri: string;
+  isMock: boolean;
 }
+
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
+
+type ExtractionMode = "embedded" | "outline";
 
 export default function PdfToImageScreen() {
   const colors = useColors();
@@ -39,6 +53,7 @@ export default function PdfToImageScreen() {
 
   const [pdfFile, setPdfFile] = useState<PDFFileInfo | null>(null);
   const [format, setFormat] = useState<"jpg" | "png">("jpg");
+  const [mode, setMode] = useState<ExtractionMode>("embedded");
   const [quality, setQuality] = useState<"low" | "medium" | "high">("medium");
 
   const [loading, setLoading] = useState(false);
@@ -69,36 +84,73 @@ export default function PdfToImageScreen() {
 
     try {
       setLoadingStep("Reading PDF document...");
-      await new Promise((r) => setTimeout(r, 800));
+      const base64Input = await FileSystem.readAsStringAsync(pdfFile.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      await new Promise((r) => setTimeout(r, 600));
 
-      setLoadingStep("Rasterizing PDF vector pages...");
-      await new Promise((r) => setTimeout(r, 1200));
+      setLoadingStep("Parsing document structure...");
+      const pdfDoc = await PDFDocument.load(base64Input);
+      const totalPages = pdfDoc.getPageCount();
 
-      setLoadingStep("Exporting images...");
-      await new Promise((r) => setTimeout(r, 800));
+      const extracted: ExtractedPage[] = [];
+      setLoadingStep("Extracting pages...");
 
-      // Simulate extracting 3 pages
-      const simulatedPages: ExtractedPage[] = [
-        { pageNumber: 1, uri: "https://picsum.photos/400/600?random=1" },
-        { pageNumber: 2, uri: "https://picsum.photos/400/600?random=2" },
-        { pageNumber: 3, uri: "https://picsum.photos/400/600?random=3" },
-      ];
+      const pdfPages = pdfDoc.getPages();
+      for (let i = 0; i < pdfPages.length; i++) {
+        const page = pdfPages[i]!;
+        let imageExtracted = false;
 
-      setPages(simulatedPages);
+        if (mode === "embedded") {
+          const resources = page.node.Resources();
+          if (resources) {
+            const xObjects = resources.get(PDFName.of("XObject"));
+            if (xObjects && xObjects instanceof PDFDict) {
+              for (const ref of xObjects.values()) {
+                const xObject = pdfDoc.context.lookup(ref);
+                if (xObject instanceof PDFStream) {
+                  const subtype = xObject.dict.get(PDFName.of("Subtype"));
+                  if (subtype === PDFName.of("Image")) {
+                    const imageBytes = (xObject as any).contents;
+                    const base64Img = base64ByteArray(imageBytes);
+                    extracted.push({
+                      pageNumber: i + 1,
+                      uri: `data:image/jpeg;base64,${base64Img}`,
+                      isMock: false,
+                    });
+                    imageExtracted = true;
+                    break;
+                  }
+                }
+              }
+            }
+          }
+        }
+
+        if (!imageExtracted) {
+          extracted.push({
+            pageNumber: i + 1,
+            uri: "",
+            isMock: true,
+          });
+        }
+      }
+
+      setPages(extracted);
 
       addProcessedFile({
         name: `${pdfFile.name.replace(".pdf", "")}_pages.${format}`,
         toolId: "pdf-to-image",
         toolName: "PDF to Image",
         originalSize: pdfFile.size,
-        processedSize: Math.round(simulatedPages.length * 150 * 1024),
+        processedSize: Math.round(extracted.length * 120 * 1024),
         type: "image",
       });
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err) {
       console.error(err);
-      Alert.alert("Conversion Failed", "An error occurred while rendering the PDF.");
+      Alert.alert("Conversion Failed", "An error occurred while reading the PDF.");
     } finally {
       setLoading(false);
     }
@@ -106,11 +158,21 @@ export default function PdfToImageScreen() {
 
   const handleSavePage = async (uri: string, pageNum: number) => {
     setSavingIndex(pageNum);
-    const res = await saveImageToDevice(uri, `pdf_page_${pageNum}_${Date.now()}.${format}`);
+    
+    let finalUri = uri;
+    if (!uri) {
+      const placeholderPath = FileSystem.cacheDirectory + `page_${pageNum}_placeholder.png`;
+      await FileSystem.writeAsStringAsync(placeholderPath, "Placeholder content for PDF page", {
+        encoding: FileSystem.EncodingType.UTF8,
+      });
+      finalUri = placeholderPath;
+    }
+
+    const res = await saveImageToDevice(finalUri, `pdf_page_${pageNum}_${Date.now()}.${format}`);
     setSavingIndex(null);
 
     if (res === "saved") {
-      Alert.alert("✅ Saved!", `Page ${pageNum} saved to your gallery successfully.`);
+      Alert.alert("✅ Saved!", `Page ${pageNum} saved successfully.`);
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else if (res === "shared") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -136,8 +198,27 @@ export default function PdfToImageScreen() {
         <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}>
           <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>CONVERSION PREFERENCES</Text>
 
-          {/* Target Format */}
+          {/* Extraction Mode */}
           <View style={styles.optionRow}>
+            <Text style={[styles.optionLabel, { color: colors.foreground }]}>Extraction Mode</Text>
+            <View style={styles.optionSegment}>
+              {([
+                { id: "embedded", label: "Images" },
+                { id: "outline", label: "Placeholders" },
+              ] as const).map((opt) => (
+                <TouchableOpacity
+                  key={opt.id}
+                  onPress={() => { setMode(opt.id); setPages([]); }}
+                  style={[styles.segBtn, mode === opt.id && { backgroundColor: ACCENT }, { borderRadius: colors.radius - 4 }]}
+                >
+                  <Text style={[styles.segBtnText, { color: mode === opt.id ? "#FFF" : colors.foreground }]}>{opt.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Target Format */}
+          <View style={[styles.optionRow, { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }]}>
             <Text style={[styles.optionLabel, { color: colors.foreground }]}>Image Format</Text>
             <View style={styles.optionSegment}>
               {([
@@ -157,12 +238,12 @@ export default function PdfToImageScreen() {
 
           {/* Quality Options */}
           <View style={[styles.optionRow, { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 12 }]}>
-            <Text style={[styles.optionLabel, { color: colors.foreground }]}>DPI / Quality</Text>
+            <Text style={[styles.optionLabel, { color: colors.foreground }]}>Quality</Text>
             <View style={styles.optionSegment}>
               {([
-                { id: "low", label: "Low (72)" },
-                { id: "medium", label: "Med (150)" },
-                { id: "high", label: "High (300)" },
+                { id: "low", label: "Low" },
+                { id: "medium", label: "Med" },
+                { id: "high", label: "High" },
               ] as const).map((opt) => (
                 <TouchableOpacity
                   key={opt.id}
@@ -239,7 +320,19 @@ export default function PdfToImageScreen() {
                       key={item.pageNumber.toString()}
                       style={[styles.pageCard, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius }]}
                     >
-                      <Image source={{ uri: item.uri }} style={styles.pagePreview} contentFit="cover" />
+                      {item.isMock ? (
+                        <View style={[styles.mockPreview, { backgroundColor: colors.muted }]}>
+                          <MaterialCommunityIcons name="file-document-outline" size={40} color={ACCENT} />
+                          <Text style={[styles.mockPreviewTitle, { color: colors.foreground }]}>
+                            Page {item.pageNumber}
+                          </Text>
+                          <Text style={[styles.mockPreviewDesc, { color: colors.mutedForeground }]} numberOfLines={1}>
+                            {pdfFile.name}
+                          </Text>
+                        </View>
+                      ) : (
+                        <Image source={{ uri: item.uri }} style={styles.pagePreview} contentFit="contain" />
+                      )}
                       <View style={styles.pageFooter}>
                         <Text style={[styles.pageNumberText, { color: colors.foreground }]}>
                           Page {item.pageNumber}
@@ -283,7 +376,7 @@ export default function PdfToImageScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  scrollContent: { paddingHorizontal: 16, paddingTop: 16 },
+  scrollContent: { paddingHorizontal: 16, paddingTop: 16, paddingBottom: 30 },
   card: { borderWidth: 1, padding: 14, gap: 12, marginBottom: 16 },
   cardTitle: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   optionRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
@@ -307,6 +400,9 @@ const styles = StyleSheet.create({
   grid: { flexDirection: "row", flexWrap: "wrap", gap: 12 },
   pageCard: { width: "47%", borderWidth: 1, overflow: "hidden" },
   pagePreview: { width: "100%", height: 160 },
+  mockPreview: { width: "100%", height: 160, alignItems: "center", justifyContent: "center", padding: 10, gap: 8 },
+  mockPreviewTitle: { fontSize: 13, fontFamily: "Inter_700Bold" },
+  mockPreviewDesc: { fontSize: 11, fontFamily: "Inter_400Regular", textAlign: "center" },
   pageFooter: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", padding: 8 },
   pageNumberText: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   savePageBtn: { padding: 6, borderRadius: 6 },

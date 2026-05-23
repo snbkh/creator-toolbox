@@ -205,11 +205,11 @@ const styles = StyleSheet.create({
   },
   filterBar: {
     borderBottomWidth: 1,
-    flexGrow: 0,
+    height: 58,
   },
   filterScroll: {
     paddingHorizontal: 20,
-    paddingVertical: 12,
+    paddingVertical: 10,
     gap: 8,
   },
   filterChip: {

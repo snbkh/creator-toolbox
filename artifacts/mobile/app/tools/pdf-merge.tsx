@@ -2,6 +2,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument } from "pdf-lib";
 import React, { useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
@@ -15,12 +17,27 @@ interface PDFFile { id: string; name: string; size: number; uri: string; }
 function fmtSize(b: number): string { return b < 1048576 ? `${(b / 1024).toFixed(1)} KB` : `${(b / 1048576).toFixed(2)} MB`; }
 function genId(): string { return Date.now().toString() + Math.random().toString(36).slice(2, 7); }
 
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
+
+type MergeMethod = "sequential" | "alternate";
+
 export default function PdfMergeScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
   const [files, setFiles] = useState<PDFFile[]>([]);
+  const [method, setMethod] = useState<MergeMethod>("sequential");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [mergedFileUri, setMergedFileUri] = useState<string | null>(null);
+  const [mergedSize, setMergedSize] = useState<number>(0);
 
   const addFiles = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", multiple: true });
@@ -28,18 +45,29 @@ export default function PdfMergeScreen() {
       const newFiles = r.assets.map((a) => ({ id: genId(), name: a.name, size: a.size ?? 500 * 1024, uri: a.uri }));
       setFiles((prev) => [...prev, ...newFiles]);
       setDone(false);
+      setMergedFileUri(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
 
-  const remove = (id: string) => { setFiles((prev) => prev.filter((f) => f.id !== id)); setDone(false); };
+  const remove = (id: string) => {
+    setFiles((prev) => prev.filter((f) => f.id !== id));
+    setDone(false);
+    setMergedFileUri(null);
+  };
+
   const moveUp = (idx: number) => {
     if (idx === 0) return;
     setFiles((prev) => { const n = [...prev]; [n[idx - 1], n[idx]] = [n[idx]!, n[idx - 1]!]; return n; });
+    setDone(false);
+    setMergedFileUri(null);
   };
+
   const moveDown = (idx: number) => {
     if (idx === files.length - 1) return;
     setFiles((prev) => { const n = [...prev]; [n[idx], n[idx + 1]] = [n[idx + 1]!, n[idx]!]; return n; });
+    setDone(false);
+    setMergedFileUri(null);
   };
 
   const totalSize = files.reduce((s, f) => s + f.size, 0);
@@ -47,18 +75,82 @@ export default function PdfMergeScreen() {
   const merge = async () => {
     if (files.length < 2) { Alert.alert("Add More Files", "Please add at least 2 PDF files to merge."); return; }
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 2000));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `merged_${files.length}_files.pdf`, toolId: "pdf-merge", toolName: "PDF Merge", originalSize: totalSize, processedSize: Math.round(totalSize * 0.95), type: "pdf" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const mergedDoc = await PDFDocument.create();
+      
+      const loadedDocs: PDFDocument[] = [];
+      const docPageIndices: number[][] = [];
+      let maxPages = 0;
+
+      for (const f of files) {
+        const base64Input = await FileSystem.readAsStringAsync(f.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        const doc = await PDFDocument.load(base64Input);
+        loadedDocs.push(doc);
+        const indices = doc.getPageIndices();
+        docPageIndices.push(indices);
+        if (indices.length > maxPages) {
+          maxPages = indices.length;
+        }
+      }
+
+      if (method === "sequential") {
+        for (let i = 0; i < loadedDocs.length; i++) {
+          const doc = loadedDocs[i]!;
+          const copiedPages = await mergedDoc.copyPages(doc, docPageIndices[i]!);
+          copiedPages.forEach((page) => mergedDoc.addPage(page));
+        }
+      } else {
+        // Alternating weave page-by-page
+        for (let pIdx = 0; pIdx < maxPages; pIdx++) {
+          for (let dIdx = 0; dIdx < loadedDocs.length; dIdx++) {
+            const doc = loadedDocs[dIdx]!;
+            const indices = docPageIndices[dIdx]!;
+            if (pIdx < indices.length) {
+              const copiedPages = await mergedDoc.copyPages(doc, [pIdx]);
+              if (copiedPages[0]) {
+                mergedDoc.addPage(copiedPages[0]);
+              }
+            }
+          }
+        }
+      }
+      
+      const pdfBytes = await mergedDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
+      
+      const outUri = FileSystem.cacheDirectory + `merged_${Date.now()}.pdf`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      
+      setMergedFileUri(outUri);
+      setMergedSize(pdfBytes.length);
+      setDone(true);
+      
+      addProcessedFile({
+        name: `merged_${files.length}_files.pdf`,
+        toolId: "pdf-merge",
+        toolName: "PDF Merge",
+        originalSize: totalSize,
+        processedSize: pdfBytes.length,
+        type: "pdf"
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF merge error:", err);
+      Alert.alert("Merge Failed", "Could not merge the PDFs offline. Make sure they are valid documents.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <ToolHeader title="PDF Merge" subtitle="Combine multiple PDFs into one" accentColor={ACCENT} />
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContainer}>
         <TouchableOpacity onPress={addFiles} style={[styles.addBtn, { backgroundColor: colors.card, borderColor: ACCENT, borderRadius: colors.radius, margin: 16 }]}>
           <MaterialCommunityIcons name="file-plus-outline" size={28} color={ACCENT} />
           <Text style={[styles.addBtnTxt, { color: ACCENT }]}>Add PDF Files</Text>
@@ -66,9 +158,25 @@ export default function PdfMergeScreen() {
 
         {files.length > 0 && (
           <>
+            {/* Method bar selection */}
+            <View style={[styles.methodBar, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16, marginBottom: 12 }]}>
+              {([
+                { id: "sequential", label: "Sequential Merge" },
+                { id: "alternate", label: "Alternating Weave" },
+              ] as const).map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  onPress={() => { setMethod(m.id); setDone(false); }}
+                  style={[styles.methodBtn, { backgroundColor: method === m.id ? ACCENT : "transparent", borderRadius: colors.radius - 4 }]}
+                >
+                  <Text style={[styles.methodBtnTxt, { color: method === m.id ? "#FFF" : colors.mutedForeground }]}>{m.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
             <View style={[styles.listHeader, { paddingHorizontal: 16 }]}>
               <Text style={[styles.listHeaderTxt, { color: colors.mutedForeground }]}>{files.length} FILE{files.length > 1 ? "S" : ""} · {fmtSize(totalSize)} TOTAL</Text>
-              <TouchableOpacity onPress={() => { setFiles([]); setDone(false); }}>
+              <TouchableOpacity onPress={() => { setFiles([]); setDone(false); setMergedFileUri(null); }}>
                 <Text style={[styles.clearTxt, { color: colors.destructive }]}>Clear All</Text>
               </TouchableOpacity>
             </View>
@@ -105,9 +213,9 @@ export default function PdfMergeScreen() {
               )}
             </TouchableOpacity>
 
-            {done && files[0] && (
+            {done && mergedFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(files[0].uri, `merged_${files.length}_files.pdf`, "application/pdf")}
+                onPress={() => shareFile(mergedFileUri, `merged_${files.length}_files.pdf`, "application/pdf")}
                 style={[styles.mergeBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
@@ -131,8 +239,12 @@ export default function PdfMergeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  scrollContainer: { paddingBottom: 30 },
   addBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", padding: 20, borderWidth: 2, borderStyle: "dashed", gap: 10, marginBottom: 4 },
   addBtnTxt: { fontSize: 16, fontFamily: "Inter_700Bold" },
+  methodBar: { flexDirection: "row", borderWidth: 1, padding: 4, gap: 4 },
+  methodBtn: { flex: 1, paddingVertical: 9, alignItems: "center" },
+  methodBtnTxt: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
   listHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", paddingBottom: 8 },
   listHeaderTxt: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 0.8 },
   clearTxt: { fontSize: 13, fontFamily: "Inter_500Medium" },

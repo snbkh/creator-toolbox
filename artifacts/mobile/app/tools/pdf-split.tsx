@@ -2,6 +2,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument } from "pdf-lib";
 import React, { useState } from "react";
 import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
@@ -16,6 +18,16 @@ function fmtSize(b: number): string { return b < 1048576 ? `${(b / 1024).toFixed
 
 type SplitMode = "range" | "every" | "extract";
 
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
+
 export default function PdfSplitScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
@@ -27,21 +39,97 @@ export default function PdfSplitScreen() {
   const [extractPages, setExtractPages] = useState("1,3,5");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [splitFileUri, setSplitFileUri] = useState<string | null>(null);
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 2 * 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) {
+      setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 2 * 1048576, uri: r.assets[0].uri });
+      setDone(false);
+      setSplitFileUri(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
   };
 
   const split = async () => {
     if (!file) return;
-    if (mode === "range" && parseInt(fromPage, 10) > parseInt(toPage, 10)) { Alert.alert("Invalid Range", "Start page must be less than end page."); return; }
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1500));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `split_${file.name}`, toolId: "pdf-split", toolName: "PDF Split", originalSize: file.size, processedSize: Math.round(file.size * 0.4), type: "pdf" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const base64Input = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const srcDoc = await PDFDocument.load(base64Input);
+      const totalPages = srcDoc.getPageCount();
+
+      let targetPages: number[] = [];
+      if (mode === "range") {
+        const from = Math.max(1, Math.min(totalPages, parseInt(fromPage, 10)));
+        const to = Math.max(from, Math.min(totalPages, parseInt(toPage, 10)));
+        for (let i = from; i <= to; i++) {
+          targetPages.push(i - 1);
+        }
+      } else if (mode === "every") {
+        const every = Math.max(1, parseInt(everyN, 10));
+        for (let i = 1; i <= Math.min(totalPages, every); i++) {
+          targetPages.push(i - 1);
+        }
+      } else if (mode === "extract") {
+        const items = extractPages.split(",");
+        for (const item of items) {
+          if (item.includes("-")) {
+            const [s, e] = item.split("-").map((v) => parseInt(v.trim(), 10));
+            if (s && e) {
+              const start = Math.max(1, Math.min(totalPages, s));
+              const end = Math.max(start, Math.min(totalPages, e));
+              for (let i = start; i <= end; i++) {
+                targetPages.push(i - 1);
+              }
+            }
+          } else {
+            const pageNum = parseInt(item.trim(), 10);
+            if (pageNum && pageNum >= 1 && pageNum <= totalPages) {
+              targetPages.push(pageNum - 1);
+            }
+          }
+        }
+      }
+
+      if (targetPages.length === 0) {
+        Alert.alert("Invalid Selection", "No valid pages found to split.");
+        setLoading(false);
+        return;
+      }
+
+      const splitDoc = await PDFDocument.create();
+      const copiedPages = await splitDoc.copyPages(srcDoc, targetPages);
+      copiedPages.forEach((page) => splitDoc.addPage(page));
+
+      const pdfBytes = await splitDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
+
+      const outUri = FileSystem.cacheDirectory + `split_${Date.now()}_${file.name}`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setSplitFileUri(outUri);
+      setDone(true);
+
+      addProcessedFile({
+        name: `split_${file.name}`,
+        toolId: "pdf-split",
+        toolName: "PDF Split",
+        originalSize: file.size,
+        processedSize: pdfBytes.length,
+        type: "pdf"
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF split error:", err);
+      Alert.alert("Split Failed", "Could not split PDF pages offline. Verify your pages or file.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -116,9 +204,9 @@ export default function PdfSplitScreen() {
               )}
             </TouchableOpacity>
 
-            {done && (
+            {done && splitFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(file.uri, `split_${file.name}`, "application/pdf")}
+                onPress={() => shareFile(splitFileUri, `split_${file.name}`, "application/pdf")}
                 style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />

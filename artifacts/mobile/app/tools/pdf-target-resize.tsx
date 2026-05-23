@@ -2,9 +2,12 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument } from "pdf-lib";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   ScrollView,
   StyleSheet,
   Text,
@@ -33,15 +36,30 @@ function formatSize(bytes: number): string {
 }
 
 type SizeUnit = "KB" | "MB";
+type ResizeMethod = "compact" | "scale";
+
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
 
 export default function PdfTargetResizeScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
   const [file, setFile] = useState<PDFFile | null>(null);
+  const [method, setMethod] = useState<ResizeMethod>("compact");
+  const [scaleFactor, setScaleFactor] = useState<"0.75" | "0.5">("0.75");
   const [targetVal, setTargetVal] = useState("500");
   const [unit, setUnit] = useState<SizeUnit>("KB");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [resizedFileUri, setResizedFileUri] = useState<string | null>(null);
+  const [processedSize, setProcessedSize] = useState<number>(0);
 
   const targetBytes = parseFloat(targetVal) * (unit === "MB" ? 1024 * 1024 : 1024) || 0;
   const originalKB = file ? file.size / 1024 : 0;
@@ -56,6 +74,7 @@ export default function PdfTargetResizeScreen() {
       const a = result.assets[0];
       setFile({ name: a.name, size: a.size ?? 1024 * 1024, uri: a.uri });
       setDone(false);
+      setResizedFileUri(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
@@ -63,25 +82,69 @@ export default function PdfTargetResizeScreen() {
   const process = async () => {
     if (!file || !targetBytes) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1800));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({
-      name: `compressed_${targetVal}${unit}.pdf`,
-      toolId: "pdf-target-resize",
-      toolName: "PDF Target Resize",
-      originalSize: file.size,
-      processedSize: estimatedKB * 1024,
-      type: "pdf",
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const base64Input = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const pdfDoc = await PDFDocument.load(base64Input);
+
+      if (method === "scale") {
+        const factor = parseFloat(scaleFactor);
+        const pages = pdfDoc.getPages();
+        for (const page of pages) {
+          const { width, height } = page.getSize();
+          page.setSize(width * factor, height * factor);
+          page.scale(factor, factor);
+        }
+      }
+
+      pdfDoc.setTitle("");
+      pdfDoc.setAuthor("");
+      pdfDoc.setSubject("");
+      pdfDoc.setCreator("");
+      pdfDoc.setProducer("");
+      pdfDoc.setCreationDate(new Date());
+      pdfDoc.setModificationDate(new Date());
+
+      const pdfBytes = await pdfDoc.save({
+        useObjectStreams: true,
+      });
+
+      const base64Output = base64ByteArray(pdfBytes);
+
+      const outUri = FileSystem.cacheDirectory + `resized_${targetVal}${unit}_${file.name}`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setResizedFileUri(outUri);
+      const actualSize = pdfBytes.length;
+      setProcessedSize(actualSize);
+      setDone(true);
+
+      addProcessedFile({
+        name: `resized_${targetVal}${unit}_${file.name}`,
+        toolId: "pdf-target-resize",
+        toolName: "PDF Target Resize",
+        originalSize: file.size,
+        processedSize: actualSize,
+        type: "pdf",
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF target resize error:", err);
+      Alert.alert("Resize Failed", "Could not resize the PDF offline. Make sure it is a valid document.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>
       <Stack.Screen options={{ headerShown: false }} />
       <ToolHeader title="PDF Target Resize" subtitle="Compress PDF to exact file size" accentColor={ACCENT} />
-      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
+      <ScrollView showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled" contentContainerStyle={styles.scrollContainer}>
         <TouchableOpacity
           onPress={pickPDF}
           style={[styles.pickBtn, { backgroundColor: colors.card, borderColor: file ? colors.border : ACCENT, borderStyle: file ? "solid" : "dashed", borderRadius: colors.radius, margin: 16 }]}
@@ -110,6 +173,42 @@ export default function PdfTargetResizeScreen() {
 
         {file && (
           <>
+            {/* Method selector */}
+            <View style={[styles.methodBar, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+              {([
+                { id: "compact", label: "Stream Compression" },
+                { id: "scale", label: "Page Rescaling" },
+              ] as const).map((m) => (
+                <TouchableOpacity
+                  key={m.id}
+                  onPress={() => { setMethod(m.id); setDone(false); }}
+                  style={[styles.methodBtn, { backgroundColor: method === m.id ? ACCENT : "transparent", borderRadius: colors.radius - 4 }]}
+                >
+                  <Text style={[styles.methodBtnTxt, { color: method === m.id ? "#FFF" : colors.mutedForeground }]}>{m.label}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            {method === "scale" && (
+              <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+                <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>SCALE FACTOR</Text>
+                <View style={styles.scaleRow}>
+                  {([
+                    { val: "0.75", label: "75% Size" },
+                    { val: "0.5", label: "50% Size" },
+                  ] as const).map((s) => (
+                    <TouchableOpacity
+                      key={s.val}
+                      onPress={() => { setScaleFactor(s.val); setDone(false); }}
+                      style={[styles.scaleBtn, { backgroundColor: scaleFactor === s.val ? ACCENT : colors.muted, borderRadius: 8 }]}
+                    >
+                      <Text style={[styles.scaleBtnTxt, { color: scaleFactor === s.val ? "#FFF" : colors.foreground }]}>{s.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
             {/* Target Size Input */}
             <View style={[styles.card, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
               <Text style={[styles.cardLabel, { color: colors.mutedForeground }]}>TARGET FILE SIZE</Text>
@@ -156,9 +255,9 @@ export default function PdfTargetResizeScreen() {
                 {[
                   { label: "Original Size", val: formatSize(file.size), color: colors.foreground },
                   { label: "Target Size", val: `${targetVal} ${unit}`, color: ACCENT },
-                  { label: "Estimated Output", val: `${estimatedKB} KB`, color: ACCENT },
-                  { label: "Size Reduction", val: `${reduction}%`, color: "#10B981" },
-                  { label: "Compression Ratio", val: `${Math.round(ratio * 100)}%`, color: colors.foreground },
+                  { label: "Actual Output", val: done ? formatSize(processedSize) : `${estimatedKB} KB (Estimated)`, color: ACCENT },
+                  { label: "Size Reduction", val: done ? `${Math.max(0, Math.round((1 - processedSize / file.size) * 100))}%` : `${reduction}%`, color: "#10B981" },
+                  { label: "Compression Ratio", val: done ? `${Math.round((processedSize / file.size) * 100)}%` : `${Math.round(ratio * 100)}%`, color: colors.foreground },
                 ].map((s) => (
                   <View key={s.label} style={[styles.statsRow, { borderBottomColor: colors.border }]}>
                     <Text style={[styles.statsLbl, { color: colors.mutedForeground }]}>{s.label}</Text>
@@ -181,9 +280,9 @@ export default function PdfTargetResizeScreen() {
               )}
             </TouchableOpacity>
 
-            {done && (
+            {done && resizedFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(file.uri, `compressed_${targetVal}${unit}.pdf`, "application/pdf")}
+                onPress={() => shareFile(resizedFileUri, `compressed_${targetVal}${unit}.pdf`, "application/pdf")}
                 style={[styles.processBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
@@ -200,15 +299,22 @@ export default function PdfTargetResizeScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
-  pickBtn: { flexDirection: "column", alignItems: "center", padding: 32, borderWidth: 2, gap: 10, marginBottom: 12 },
-  fileIcon: { width: 60, height: 60, alignItems: "center", justifyContent: "center" },
+  scrollContainer: { paddingBottom: 30 },
+  pickBtn: { flexDirection: "row", alignItems: "center", padding: 20, borderWidth: 2, gap: 14, marginBottom: 12 },
+  fileIcon: { width: 48, height: 48, alignItems: "center", justifyContent: "center" },
   fileMeta: { flex: 1 },
   fileName: { fontSize: 14, fontFamily: "Inter_600SemiBold" },
   fileSize: { fontSize: 12, fontFamily: "Inter_400Regular" },
   pickTitle: { fontSize: 18, fontFamily: "Inter_700Bold" },
   pickDesc: { fontSize: 13, fontFamily: "Inter_400Regular" },
+  methodBar: { flexDirection: "row", borderWidth: 1, padding: 4, gap: 4, marginBottom: 12 },
+  methodBtn: { flex: 1, paddingVertical: 9, alignItems: "center" },
+  methodBtnTxt: { fontSize: 13, fontFamily: "Inter_600SemiBold" },
   card: { borderWidth: 1, padding: 16, marginBottom: 12, gap: 12 },
   cardLabel: { fontSize: 10, fontFamily: "Inter_700Bold", letterSpacing: 1 },
+  scaleRow: { flexDirection: "row", gap: 8 },
+  scaleBtn: { flex: 1, paddingVertical: 12, alignItems: "center" },
+  scaleBtnTxt: { fontSize: 13, fontFamily: "Inter_700Bold" },
   inputGroup: { flexDirection: "row", gap: 12, alignItems: "center" },
   numInput: { fontSize: 36, fontFamily: "Inter_700Bold", borderBottomWidth: 2, paddingBottom: 4, flex: 1 },
   unitToggle: { flexDirection: "row", gap: 6 },

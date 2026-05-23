@@ -2,8 +2,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument, degrees } from "pdf-lib";
 import React, { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
@@ -14,7 +16,17 @@ const ACCENT = "#DC2626";
 interface PDFFile { name: string; size: number; uri: string; }
 
 type RotateAngle = 90 | 180 | 270;
-type PageScope = "all" | "odd" | "even" | "custom";
+type PageScope = "all" | "odd" | "even";
+
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
 
 export default function PdfRotateScreen() {
   const colors = useColors();
@@ -24,20 +36,72 @@ export default function PdfRotateScreen() {
   const [scope, setScope] = useState<PageScope>("all");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [rotatedFileUri, setRotatedFileUri] = useState<string | null>(null);
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) {
+      setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri });
+      setDone(false);
+      setRotatedFileUri(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
   };
 
   const rotate = async () => {
     if (!file) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `rotated_${angle}deg_${file.name}`, toolId: "pdf-rotate", toolName: "PDF Rotate", originalSize: file.size, processedSize: file.size, type: "pdf" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const base64Input = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const pdfDoc = await PDFDocument.load(base64Input);
+      const pages = pdfDoc.getPages();
+
+      for (let i = 0; i < pages.length; i++) {
+        const page = pages[i]!;
+        let shouldRotate = false;
+        if (scope === "all") {
+          shouldRotate = true;
+        } else if (scope === "odd") {
+          shouldRotate = (i % 2 === 0);
+        } else if (scope === "even") {
+          shouldRotate = (i % 2 !== 0);
+        }
+
+        if (shouldRotate) {
+          const currentRotation = page.getRotation().angle;
+          page.setRotation(degrees((currentRotation + angle) % 360));
+        }
+      }
+
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
+
+      const outUri = FileSystem.cacheDirectory + `rotated_${angle}deg_${file.name}`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setRotatedFileUri(outUri);
+      setDone(true);
+
+      addProcessedFile({
+        name: `rotated_${angle}deg_${file.name}`,
+        toolId: "pdf-rotate",
+        toolName: "PDF Rotate",
+        originalSize: file.size,
+        processedSize: pdfBytes.length,
+        type: "pdf"
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF rotate error:", err);
+      Alert.alert("Rotation Failed", "Could not rotate the PDF pages offline.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -94,9 +158,9 @@ export default function PdfRotateScreen() {
               )}
             </TouchableOpacity>
 
-            {done && (
+            {done && rotatedFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(file.uri, `rotated_${angle}deg_${file.name}`, "application/pdf")}
+                onPress={() => shareFile(rotatedFileUri, `rotated_${angle}deg_${file.name}`, "application/pdf")}
                 style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />

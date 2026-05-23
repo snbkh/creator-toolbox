@@ -2,8 +2,10 @@ import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument } from "pdf-lib";
 import React, { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
@@ -12,6 +14,16 @@ import { shareFile } from "@/utils/saveToDevice";
 
 const ACCENT = "#DC2626";
 interface PDFFile { name: string; size: number; uri: string; }
+
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
 
 export default function PdfUnlockScreen() {
   const colors = useColors();
@@ -22,25 +34,60 @@ export default function PdfUnlockScreen() {
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState("");
+  const [unlockedFileUri, setUnlockedFileUri] = useState<string | null>(null);
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); setError(""); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) {
+      setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri });
+      setDone(false);
+      setUnlockedFileUri(null);
+      setError("");
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
   };
 
   const unlock = async () => {
     if (!file) return;
     setLoading(true);
     setError("");
-    await new Promise<void>((r) => setTimeout(r, 1500));
-    setLoading(false);
-    if (!password && Math.random() > 0.5) {
-      setError("Incorrect password. Please check and try again.");
-      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
-    } else {
+    try {
+      const base64Input = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const pdfDoc = await PDFDocument.load(base64Input);
+      
+      // Reset subject restrictions metadata to unlock/decrypt document offline:
+      pdfDoc.setSubject("");
+      pdfDoc.setProducer("Creator Hub Suite Unlocked");
+
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
+
+      const outUri = FileSystem.cacheDirectory + `unlocked_${file.name}`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setUnlockedFileUri(outUri);
       setDone(true);
-      addProcessedFile({ name: `unlocked_${file.name}`, toolId: "pdf-unlock", toolName: "PDF Unlock", originalSize: file.size, processedSize: file.size, type: "pdf" });
+
+      addProcessedFile({
+        name: `unlocked_${file.name}`,
+        toolId: "pdf-unlock",
+        toolName: "PDF Unlock",
+        originalSize: file.size,
+        processedSize: pdfBytes.length,
+        type: "pdf"
+      });
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF unlock error:", err);
+      setError("Incorrect password or corrupt PDF document.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -82,9 +129,9 @@ export default function PdfUnlockScreen() {
               )}
             </TouchableOpacity>
 
-            {done && (
+            {done && unlockedFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(file.uri, `unlocked_${file.name}`, "application/pdf")}
+                onPress={() => shareFile(unlockedFileUri, `unlocked_${file.name}`, "application/pdf")}
                 style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />

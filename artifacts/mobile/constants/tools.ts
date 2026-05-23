@@ -158,8 +158,8 @@ export const TOOLS: Tool[] = [
     icon: "arrow-up-bold-box-outline",
     iconSet: "MaterialCommunityIcons",
     category: "image",
-    route: "coming-soon",
-    implemented: false,
+    route: "image-upscaler",
+    implemented: true,
   },
   {
     id: "image-collage",
@@ -168,8 +168,8 @@ export const TOOLS: Tool[] = [
     icon: "collage",
     iconSet: "MaterialCommunityIcons",
     category: "image",
-    route: "coming-soon",
-    implemented: false,
+    route: "image-collage",
+    implemented: true,
   },
   {
     id: "image-to-pdf",
@@ -304,8 +304,8 @@ export const TOOLS: Tool[] = [
     icon: "file-export-outline",
     iconSet: "MaterialCommunityIcons",
     category: "pdf",
-    route: "coming-soon",
-    implemented: false,
+    route: "doc-to-pdf",
+    implemented: true,
   },
   // UTILITY TOOLS
   {

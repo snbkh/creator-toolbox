@@ -3,6 +3,8 @@ import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImagePicker from "expo-image-picker";
 import { Stack, useRouter } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument } from "pdf-lib";
 import React, { useState } from "react";
 import {
   ActivityIndicator,
@@ -26,6 +28,16 @@ interface SelectedImage {
   uri: string;
   width: number;
   height: number;
+}
+
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
 }
 
 export default function ImageToPdfScreen() {
@@ -104,24 +116,81 @@ export default function ImageToPdfScreen() {
 
     try {
       setLoadingStep("Processing images...");
-      await new Promise((r) => setTimeout(r, 1000));
+      const pdfDoc = await PDFDocument.create();
 
-      setLoadingStep("Structuring PDF pages...");
-      await new Promise((r) => setTimeout(r, 800));
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i]!;
+        setLoadingStep(`Embedding image ${i + 1} of ${images.length}...`);
+
+        const imgBase64 = await FileSystem.readAsStringAsync(img.uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        // Convert base64 to bytes
+        const binaryStr = atob(imgBase64);
+        const len = binaryStr.length;
+        const imgBytes = new Uint8Array(len);
+        for (let j = 0; j < len; j++) {
+          imgBytes[j] = binaryStr.charCodeAt(j);
+        }
+
+        let pdfImg;
+        if (img.uri.toLowerCase().endsWith(".png")) {
+          pdfImg = await pdfDoc.embedPng(imgBytes);
+        } else {
+          pdfImg = await pdfDoc.embedJpg(imgBytes);
+        }
+
+        let pageW = img.width;
+        let pageH = img.height;
+
+        if (pageSize === "a4") {
+          pageW = orientation === "portrait" ? 595.28 : 841.89;
+          pageH = orientation === "portrait" ? 841.89 : 595.28;
+        } else if (pageSize === "letter") {
+          pageW = orientation === "portrait" ? 612 : 792;
+          pageH = orientation === "portrait" ? 792 : 612;
+        }
+
+        const page = pdfDoc.addPage([pageW, pageH]);
+
+        let marginSize = 0;
+        if (margin === "small") marginSize = 20;
+        else if (margin === "large") marginSize = 40;
+
+        const availableW = pageW - marginSize * 2;
+        const availableH = pageH - marginSize * 2;
+
+        const imgDims = pdfImg.scaleToFit(availableW, availableH);
+
+        const x = marginSize + (availableW - imgDims.width) / 2;
+        const y = marginSize + (availableH - imgDims.height) / 2;
+
+        page.drawImage(pdfImg, {
+          x,
+          y,
+          width: imgDims.width,
+          height: imgDims.height,
+        });
+      }
 
       setLoadingStep("Compiling PDF binary...");
-      await new Promise((r) => setTimeout(r, 1200));
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
 
-      // Use the first image URI as base to simulate PDF creation
-      const simulatedPdfUri = images[0]!.uri.replace(/\.(jpg|jpeg|png)$/i, ".pdf");
-      setOutputPdfUri(simulatedPdfUri);
+      const outUri = FileSystem.cacheDirectory + `images_to_${Date.now()}.pdf`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setOutputPdfUri(outUri);
 
       addProcessedFile({
         name: `images_to_${Date.now()}.pdf`,
         toolId: "image-to-pdf",
         toolName: "Image to PDF",
         originalSize: images.length * 450 * 1024,
-        processedSize: Math.round(images.length * 380 * 1024),
+        processedSize: pdfBytes.length,
         type: "pdf",
       });
 

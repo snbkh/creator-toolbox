@@ -2,8 +2,10 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import * as DocumentPicker from "expo-document-picker";
 import * as Haptics from "expo-haptics";
 import { Stack } from "expo-router";
+import * as FileSystem from "expo-file-system/legacy";
+import { PDFDocument, StandardFonts, rgb, degrees } from "pdf-lib";
 import React, { useState } from "react";
-import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import { ActivityIndicator, Alert, ScrollView, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
 
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
@@ -29,6 +31,16 @@ const COLORS: { val: Color; label: string; hex: string }[] = [
   { val: "#10B98140", label: "Green", hex: "#10B981" },
 ];
 
+function base64ByteArray(byteArray: Uint8Array): string {
+  const chunks: string[] = [];
+  const chunkSize = 0xffff;
+  for (let i = 0; i < byteArray.length; i += chunkSize) {
+    const chunk = byteArray.subarray(i, i + chunkSize);
+    chunks.push(String.fromCharCode.apply(null, chunk as any));
+  }
+  return btoa(chunks.join(""));
+}
+
 export default function PdfWatermarkScreen() {
   const colors = useColors();
   const { addProcessedFile } = useApp();
@@ -39,20 +51,91 @@ export default function PdfWatermarkScreen() {
   const [color, setColor] = useState<Color>("#00000040");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [watermarkedFileUri, setWatermarkedFileUri] = useState<string | null>(null);
 
   const pick = async () => {
     const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
-    if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
+    if (!r.canceled && r.assets[0]) {
+      setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri });
+      setDone(false);
+      setWatermarkedFileUri(null);
+      Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    }
   };
 
   const apply = async () => {
     if (!file || !watermarkText.trim()) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1300));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({ name: `watermarked_${file.name}`, toolId: "pdf-watermark", toolName: "PDF Watermark", originalSize: file.size, processedSize: file.size + 10 * 1024, type: "pdf" });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      const base64Input = await FileSystem.readAsStringAsync(file.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const pdfDoc = await PDFDocument.load(base64Input);
+      const pages = pdfDoc.getPages();
+      const font = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+      
+      const fillHex = COLORS.find((c) => c.val === color)?.hex ?? "#000000";
+      const r = parseInt(fillHex.slice(1, 3), 16) / 255;
+      const g = parseInt(fillHex.slice(3, 5), 16) / 255;
+      const b = parseInt(fillHex.slice(5, 7), 16) / 255;
+
+      for (const page of pages) {
+        const { width, height } = page.getSize();
+        const size = 36;
+        const textWidth = font.widthOfTextAtSize(watermarkText, size);
+        
+        let x = (width - textWidth) / 2;
+        let y = (height - size) / 2;
+        let rot = 0;
+        
+        if (position === "diagonal") {
+          rot = -45;
+          x = width / 2 - textWidth / 2;
+          y = height / 2;
+        } else if (position === "top") {
+          y = height - 80;
+        } else if (position === "bottom") {
+          y = 80;
+        }
+        
+        page.drawText(watermarkText, {
+          x,
+          y,
+          size,
+          font,
+          color: rgb(r, g, b),
+          opacity: opacity / 100,
+          rotate: degrees(rot),
+        });
+      }
+
+      const pdfBytes = await pdfDoc.save({ useObjectStreams: true });
+      const base64Output = base64ByteArray(pdfBytes);
+
+      const outUri = FileSystem.cacheDirectory + `watermarked_${file.name}`;
+      await FileSystem.writeAsStringAsync(outUri, base64Output, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      setWatermarkedFileUri(outUri);
+      setDone(true);
+
+      addProcessedFile({
+        name: `watermarked_${file.name}`,
+        toolId: "pdf-watermark",
+        toolName: "PDF Watermark",
+        originalSize: file.size,
+        processedSize: pdfBytes.length,
+        type: "pdf"
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (err) {
+      console.error("PDF watermark error:", err);
+      Alert.alert("Watermark Failed", "Could not apply watermark offline.");
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -132,9 +215,9 @@ export default function PdfWatermarkScreen() {
               )}
             </TouchableOpacity>
 
-            {done && (
+            {done && watermarkedFileUri && (
               <TouchableOpacity
-                onPress={() => shareFile(file.uri, `watermarked_${file.name}`, "application/pdf")}
+                onPress={() => shareFile(watermarkedFileUri, `watermarked_${file.name}`, "application/pdf")}
                 style={[styles.btn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
               >
                 <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
