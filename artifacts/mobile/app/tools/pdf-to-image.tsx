@@ -49,7 +49,6 @@ export default function PdfToImageScreen() {
   const pickPdf = async () => {
     const r = await DocumentPicker.getDocumentAsync({
       type: "application/pdf",
-      copyToCacheDirectory: false,
     });
 
     if (!r.canceled && r.assets && r.assets[0]) {

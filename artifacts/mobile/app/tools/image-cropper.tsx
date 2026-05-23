@@ -5,6 +5,7 @@ import * as ImagePicker from "expo-image-picker";
 import { Stack } from "expo-router";
 import React, { useState } from "react";
 import {
+  ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
@@ -16,6 +17,7 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 const ACCENT = "#8B5CF6";
 
@@ -38,6 +40,7 @@ export default function ImageCropperScreen() {
   const [croppedUri, setCroppedUri] = useState<string | null>(null);
   const [selectedAspect, setSelectedAspect] = useState<string>("Free");
   const [originalSize, setOriginalSize] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const cropImage = async (aspectLabel: string) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -107,16 +110,52 @@ export default function ImageCropperScreen() {
         </TouchableOpacity>
 
         {croppedUri && (
-          <View style={[styles.resultCard, { backgroundColor: colors.card, borderColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16 }]}>
+          <View style={[styles.resultCard, { backgroundColor: colors.card, borderColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, gap: 14 }]}>
             <Text style={[styles.resultTitle, { color: "#10B981" }]}>Cropped Image</Text>
             <Image source={{ uri: croppedUri }} style={styles.resultImg} contentFit="contain" />
-            <TouchableOpacity
-              onPress={() => cropImage(selectedAspect)}
-              style={[styles.recropBtn, { backgroundColor: colors.muted, borderRadius: 8 }]}
-            >
-              <MaterialCommunityIcons name="crop" size={16} color={colors.mutedForeground} />
-              <Text style={[styles.recropTxt, { color: colors.mutedForeground }]}>Crop Again</Text>
-            </TouchableOpacity>
+            
+            <View style={{ width: "100%", gap: 10 }}>
+              <TouchableOpacity
+                onPress={async () => {
+                  if (!croppedUri) return;
+                  setSaving(true);
+                  const res = await saveImageToDevice(croppedUri, `cropped_${selectedAspect.replace(":", "x")}_${Date.now()}.jpg`);
+                  setSaving(false);
+                  if (res === "saved") {
+                    Alert.alert("✅ Saved!", "Image saved to your gallery in 'Creator Toolbox' album.");
+                    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+                  }
+                }}
+                disabled={saving}
+                style={[
+                  styles.cropBtn,
+                  {
+                    backgroundColor: "#10B981",
+                    borderRadius: colors.radius,
+                    marginHorizontal: 0,
+                    marginBottom: 0,
+                    width: "100%",
+                  },
+                ]}
+              >
+                {saving ? (
+                  <ActivityIndicator color="#FFF" />
+                ) : (
+                  <>
+                    <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                    <Text style={styles.cropBtnTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => cropImage(selectedAspect)}
+                style={[styles.recropBtn, { backgroundColor: colors.muted, borderRadius: colors.radius, width: "100%", justifyContent: "center", paddingVertical: 12, flexDirection: "row", gap: 6 }]}
+              >
+                <MaterialCommunityIcons name="crop" size={16} color={colors.mutedForeground} />
+                <Text style={[styles.recropTxt, { color: colors.mutedForeground }]}>Crop Again</Text>
+              </TouchableOpacity>
+            </View>
           </View>
         )}
 

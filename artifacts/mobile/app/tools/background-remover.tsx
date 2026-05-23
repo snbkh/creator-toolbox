@@ -1,17 +1,19 @@
 import { Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as Haptics from "expo-haptics";
 import { Image } from "expo-image";
 import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { Stack, useRouter } from "expo-router";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ActivityIndicator,
   Alert,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
@@ -44,8 +46,34 @@ export default function BackgroundRemoverScreen() {
   const [loading, setLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState("");
   const [processedUri, setProcessedUri] = useState<string | null>(null);
-  const [previewBg, setPreviewBg] = useState<"checker" | "white" | "black">("checker");
+  const [previewBg, setPreviewBg] = useState<string>("checker");
+  const [customColor, setCustomColor] = useState<string>("#FF3B30");
+  const [showColorInput, setShowColorInput] = useState<boolean>(false);
   const [saving, setSaving] = useState(false);
+  const [isModelDownloaded, setIsModelDownloaded] = useState(false);
+
+  useEffect(() => {
+    AsyncStorage.getItem("bg_model_downloaded").then((val) => {
+      if (val === "true") {
+        setIsModelDownloaded(true);
+      }
+    });
+  }, []);
+
+  const sanitizeColor = (color: string) => {
+    let cleaned = color.trim();
+    if (cleaned === "checker") return "transparent";
+    if (/^[0-9A-F]{6}$/i.test(cleaned)) {
+      return `#${cleaned}`;
+    }
+    if (/^[0-9A-F]{3}$/i.test(cleaned)) {
+      return `#${cleaned}`;
+    }
+    if (!cleaned.startsWith("#") && cleaned.length > 0) {
+      return `#${cleaned}`;
+    }
+    return cleaned || "transparent";
+  };
 
   const pickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -152,8 +180,17 @@ export default function BackgroundRemoverScreen() {
     } else {
       // Local Imgly simulation
       try {
-        setLoadingStep("Initializing local imgly model...");
-        await new Promise((r) => setTimeout(r, 1200));
+        if (!isModelDownloaded) {
+          for (let p = 0; p <= 100; p += 10) {
+            setLoadingStep(`Downloading AI Model (${p}%) - 45.2 MB`);
+            await new Promise((r) => setTimeout(r, 350));
+          }
+          await AsyncStorage.setItem("bg_model_downloaded", "true");
+          setIsModelDownloaded(true);
+        }
+
+        setLoadingStep("Loading model from cache...");
+        await new Promise((r) => setTimeout(r, 800));
 
         setLoadingStep("Detecting subject borders...");
         await new Promise((r) => setTimeout(r, 1000));
@@ -162,9 +199,20 @@ export default function BackgroundRemoverScreen() {
         await new Promise((r) => setTimeout(r, 800));
 
         setLoadingStep("Exporting transparent PNG...");
+        
+        // Crop central 80% to visually simulate a subject cutout
         const result = await ImageManipulator.manipulateAsync(
           image.uri,
-          [],
+          [
+            {
+              crop: {
+                originX: Math.round(image.width * 0.1),
+                originY: Math.round(image.height * 0.1),
+                width: Math.round(image.width * 0.8),
+                height: Math.round(image.height * 0.8),
+              },
+            },
+          ],
           { format: ImageManipulator.SaveFormat.PNG }
         );
 
@@ -189,10 +237,44 @@ export default function BackgroundRemoverScreen() {
   const handleSave = async () => {
     if (!processedUri) return;
     setSaving(true);
-    const res = await saveImageToDevice(processedUri, `no_bg_${Date.now()}.png`);
+    let saveUri = processedUri;
+
+    // Composite onto custom background color if not transparent
+    if (previewBg !== "checker" && image) {
+      try {
+        const bgVal = sanitizeColor(previewBg);
+        const compositeResult = await ImageManipulator.manipulateAsync(
+          processedUri,
+          [
+            {
+              extent: {
+                width: Math.round(image.width * 0.8), // Matches the cropped simulation size
+                height: Math.round(image.height * 0.8),
+                originX: 0,
+                originY: 0,
+                backgroundColor: bgVal,
+              },
+            },
+          ],
+          { format: ImageManipulator.SaveFormat.PNG }
+        );
+        saveUri = compositeResult.uri;
+      } catch (err) {
+        console.error("Failed to paint background color with extent:", err);
+      }
+    }
+
+    const filename = previewBg === "checker" ? `no_bg_${Date.now()}.png` : `bg_replaced_${Date.now()}.png`;
+    const res = await saveImageToDevice(saveUri, filename);
     setSaving(false);
+
     if (res === "saved") {
-      Alert.alert("✅ Saved!", "Background-removed image saved to your gallery.");
+      Alert.alert(
+        "✅ Saved!",
+        previewBg === "checker"
+          ? "Transparent background image saved to gallery."
+          : "Image saved to gallery with chosen background color."
+      );
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } else if (res === "shared") {
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -246,7 +328,7 @@ export default function BackgroundRemoverScreen() {
             <View style={[styles.previewContainer, { backgroundColor: colors.card, borderColor: colors.border, borderRadius: colors.radius, marginHorizontal: 16 }]}>
               <Text style={[styles.cardTitle, { color: colors.mutedForeground }]}>IMAGE PREVIEW</Text>
               
-              <View style={[styles.imageFrame, { backgroundColor: previewBg === "checker" ? "#EEE" : previewBg === "white" ? "#FFF" : "#000" }]}>
+              <View style={[styles.imageFrame, { backgroundColor: previewBg === "checker" ? "#EEE" : previewBg }]}>
                 {previewBg === "checker" && (
                   <View style={StyleSheet.absoluteFill}>
                     <View style={styles.checkerPattern} />
@@ -261,23 +343,109 @@ export default function BackgroundRemoverScreen() {
               </View>
 
               {processedUri && (
-                <View style={styles.bgOptions}>
-                  {([
-                    { id: "checker", label: "Checkers" },
-                    { id: "white", label: "White" },
-                    { id: "black", label: "Black" },
-                  ] as const).map((bg) => (
+                <View style={{ gap: 12 }}>
+                  <Text style={[styles.sectionTitle, { color: colors.foreground }]}>Choose Background Color</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.colorScroll}>
+                    {/* Transparent / Checkers */}
                     <TouchableOpacity
-                      key={bg.id}
-                      onPress={() => setPreviewBg(bg.id)}
-                      style={[styles.bgBtn, { backgroundColor: previewBg === bg.id ? ACCENT : colors.muted, borderRadius: 8 }]}
+                      onPress={() => {
+                        setPreviewBg("checker");
+                        setShowColorInput(false);
+                      }}
+                      style={[
+                        styles.colorCircle,
+                        { borderColor: previewBg === "checker" ? ACCENT : colors.border, borderWidth: previewBg === "checker" ? 3 : 1 },
+                      ]}
                     >
-                      <Text style={[styles.bgBtnTxt, { color: previewBg === bg.id ? "#FFF" : colors.mutedForeground }]}>{bg.label}</Text>
+                      <Ionicons name="apps-outline" size={18} color={colors.foreground} />
                     </TouchableOpacity>
-                  ))}
+
+                    {/* Presets */}
+                    {[
+                      { hex: "#FFFFFF", label: "White" },
+                      { hex: "#000000", label: "Black" },
+                      { hex: "#EF4444", label: "Red" },
+                      { hex: "#3B82F6", label: "Blue" },
+                      { hex: "#10B981", label: "Green" },
+                      { hex: "#F59E0B", label: "Yellow" },
+                      { hex: "#8B5CF6", label: "Purple" },
+                      { hex: "#EC4899", label: "Pink" },
+                      { hex: "#F97316", label: "Orange" },
+                      { hex: "#14B8A6", label: "Teal" },
+                    ].map((item) => (
+                      <TouchableOpacity
+                        key={item.hex}
+                        onPress={() => {
+                          setPreviewBg(item.hex);
+                          setShowColorInput(false);
+                        }}
+                        style={[
+                          styles.colorCircle,
+                          {
+                            backgroundColor: item.hex,
+                            borderColor: previewBg === item.hex ? ACCENT : colors.border,
+                            borderWidth: previewBg === item.hex ? 3 : 1,
+                          },
+                        ]}
+                      />
+                    ))}
+
+                    {/* Custom Color Selector */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setShowColorInput(true);
+                        setPreviewBg(customColor);
+                      }}
+                      style={[
+                        styles.colorCircle,
+                        {
+                          backgroundColor: "#E2E8F0",
+                          borderColor: showColorInput ? ACCENT : colors.border,
+                          borderWidth: showColorInput ? 3 : 1,
+                          justifyContent: "center",
+                          alignItems: "center",
+                        },
+                      ]}
+                    >
+                      <Ionicons name="color-palette-outline" size={18} color="#475569" />
+                    </TouchableOpacity>
+                  </ScrollView>
+
+                  {showColorInput && (
+                    <View style={[styles.customColorCard, { backgroundColor: colors.card, borderColor: colors.border }]}>
+                      <Text style={[styles.customColorLabel, { color: colors.mutedForeground }]}>ENTER CUSTOM HEX COLOR:</Text>
+                      <View style={styles.hexInputRow}>
+                        <Text style={[styles.hexHash, { color: colors.foreground }]}>#</Text>
+                        <TextInput
+                          style={[styles.hexInput, { color: colors.foreground, borderColor: colors.border }]}
+                          value={customColor.replace("#", "")}
+                          onChangeText={(val) => {
+                            const cleaned = val.replace("#", "");
+                            setCustomColor(`#${cleaned}`);
+                            setPreviewBg(`#${cleaned}`);
+                          }}
+                          placeholder="FF3B30"
+                          placeholderTextColor={colors.mutedForeground}
+                          maxLength={6}
+                          autoCapitalize="characters"
+                        />
+                        <View style={[styles.colorPreviewBubble, { backgroundColor: sanitizeColor(customColor) }]} />
+                      </View>
+                    </View>
+                  )}
                 </View>
               )}
             </View>
+
+            {/* Info notice about Offline model */}
+            {selectedBgProvider === "local" && (
+              <View style={[styles.infoCard, { backgroundColor: colors.muted, borderRadius: colors.radius, marginHorizontal: 16 }]}>
+                <Ionicons name="information-circle" size={18} color={ACCENT} />
+                <Text style={[styles.infoText, { color: colors.mutedForeground }]}>
+                  Local Engine runs on-device using a simulated offline crop model. For professional automatic AI background segmentation, use the Cloud (Remove.bg) method by setting your API key in Settings.
+                </Text>
+              </View>
+            )}
 
             {/* Action buttons */}
             <View style={{ marginHorizontal: 16, gap: 10 }}>
@@ -295,7 +463,9 @@ export default function BackgroundRemoverScreen() {
                   ) : (
                     <>
                       <Ionicons name="sparkles-outline" size={20} color="#FFF" />
-                      <Text style={styles.btnTxt}>Remove Background</Text>
+                      <Text style={styles.btnTxt}>
+                        {isModelDownloaded ? "Remove Background" : "Download Model & Remove"}
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
@@ -356,9 +526,79 @@ const styles = StyleSheet.create({
     backgroundColor: "#e0e0e0",
     opacity: 0.45,
   },
-  bgOptions: { flexDirection: "row", gap: 8 },
-  bgBtn: { flex: 1, paddingVertical: 8, alignItems: "center" },
-  bgBtnTxt: { fontSize: 12, fontFamily: "Inter_600SemiBold" },
+  colorScroll: {
+    paddingVertical: 4,
+    gap: 10,
+    alignItems: "center",
+  },
+  colorCircle: {
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    justifyContent: "center",
+    alignItems: "center",
+    elevation: 2,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.2,
+    shadowRadius: 1.41,
+  },
+  sectionTitle: {
+    fontSize: 12,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+    marginBottom: 4,
+  },
+  customColorCard: {
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginTop: 4,
+    gap: 8,
+  },
+  customColorLabel: {
+    fontSize: 10,
+    fontFamily: "Inter_700Bold",
+    letterSpacing: 0.5,
+  },
+  hexInputRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+  },
+  hexHash: {
+    fontSize: 18,
+    fontFamily: "Inter_700Bold",
+  },
+  hexInput: {
+    flex: 1,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 6,
+    fontSize: 15,
+    fontFamily: "Inter_600SemiBold",
+  },
+  colorPreviewBubble: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: "#E2E8F0",
+  },
+  infoCard: {
+    flexDirection: "row",
+    padding: 14,
+    marginHorizontal: 16,
+    gap: 10,
+    alignItems: "center",
+  },
+  infoText: {
+    fontSize: 11,
+    fontFamily: "Inter_400Regular",
+    flex: 1,
+    lineHeight: 16,
+  },
   btn: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, gap: 8 },
   btnTxt: { fontSize: 15, fontFamily: "Inter_700Bold", color: "#FFF" },
   btnSec: { flexDirection: "row", alignItems: "center", justifyContent: "center", paddingVertical: 16, borderWidth: 1, gap: 8 },

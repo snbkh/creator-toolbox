@@ -29,7 +29,7 @@ export default function PdfSplitScreen() {
   const [done, setDone] = useState(false);
 
   const pick = async () => {
-    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
+    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
     if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 2 * 1048576, uri: r.assets[0].uri }); setDone(false); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
   };
 

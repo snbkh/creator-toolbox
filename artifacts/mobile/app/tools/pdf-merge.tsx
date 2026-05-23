@@ -23,7 +23,7 @@ export default function PdfMergeScreen() {
   const [done, setDone] = useState(false);
 
   const addFiles = async () => {
-    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false, multiple: true });
+    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", multiple: true });
     if (!r.canceled) {
       const newFiles = r.assets.map((a) => ({ id: genId(), name: a.name, size: a.size ?? 500 * 1024, uri: a.uri }));
       setFiles((prev) => [...prev, ...newFiles]);

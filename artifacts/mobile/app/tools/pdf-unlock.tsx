@@ -24,7 +24,7 @@ export default function PdfUnlockScreen() {
   const [error, setError] = useState("");
 
   const pick = async () => {
-    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
+    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
     if (!r.canceled && r.assets[0]) { setFile({ name: r.assets[0].name, size: r.assets[0].size ?? 1048576, uri: r.assets[0].uri }); setDone(false); setError(""); Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium); }
   };
 

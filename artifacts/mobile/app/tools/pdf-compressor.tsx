@@ -50,7 +50,7 @@ export default function PdfCompressorScreen() {
   const estimatedSize = file ? Math.round(file.size * ratio * 0.95) : 0;
 
   const pickPDF = async () => {
-    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
+    const r = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
     if (!r.canceled && r.assets[0]) {
       const a = r.assets[0];
       setFile({ name: a.name, size: a.size ?? 2 * 1048576, uri: a.uri });

@@ -18,6 +18,8 @@ import {
 import { ToolHeader } from "@/components/ToolHeader";
 import { useApp } from "@/context/AppContext";
 import { useColors } from "@/hooks/useColors";
+import * as ImageManipulator from "expo-image-manipulator";
+import { saveImageToDevice } from "@/utils/saveToDevice";
 
 interface ImageInfo {
   uri: string;
@@ -41,6 +43,8 @@ export default function TargetResizeScreen() {
   const [targetKB, setTargetKB] = useState("100");
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [resizedUri, setResizedUri] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
 
   const originalKB = image ? image.fileSize / 1024 : 0;
   const targetKBNum = parseFloat(targetKB) || 0;
@@ -65,6 +69,7 @@ export default function TargetResizeScreen() {
       const a = result.assets[0];
       setImage({ uri: a.uri, width: a.width, height: a.height, fileSize: a.fileSize ?? 500 * 1024 });
       setDone(false);
+      setResizedUri(null);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
     }
   };
@@ -72,18 +77,40 @@ export default function TargetResizeScreen() {
   const process = async () => {
     if (!image || !targetKBNum) return;
     setLoading(true);
-    await new Promise<void>((r) => setTimeout(r, 1200));
-    setLoading(false);
-    setDone(true);
-    addProcessedFile({
-      name: `target_${targetKBNum}KB.jpg`,
-      toolId: "target-resize",
-      toolName: "Target File Size Resize",
-      originalSize: image.fileSize,
-      processedSize: estimatedKB * 1024,
-      type: "image",
-    });
-    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    try {
+      // Real quality target compression using expo-image-manipulator
+      const result = await ImageManipulator.manipulateAsync(
+        image.uri,
+        [], // no resize, just compress
+        { compress: neededQuality, format: ImageManipulator.SaveFormat.JPEG }
+      );
+      setResizedUri(result.uri);
+      setDone(true);
+      addProcessedFile({
+        name: `target_${targetKBNum}KB.jpg`,
+        toolId: "target-resize",
+        toolName: "Target File Size Resize",
+        originalSize: image.fileSize,
+        processedSize: estimatedKB * 1024,
+        type: "image",
+      });
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e) {
+      Alert.alert("Resize Failed", "Could not compress image to target size.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveResized = async () => {
+    if (!resizedUri) return;
+    setSaving(true);
+    const result = await saveImageToDevice(resizedUri, `target_${targetKBNum}KB.jpg`);
+    setSaving(false);
+    if (result === "saved") {
+      Alert.alert("✅ Saved!", "Image saved to your gallery in 'Creator Toolbox' album.");
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    }
   };
 
   return (
@@ -184,7 +211,9 @@ export default function TargetResizeScreen() {
               onPress={process}
               disabled={loading || !targetKBNum}
               style={[styles.processBtn, {
-                backgroundColor: done ? "#10B981" : ACCENT,
+                backgroundColor: done ? "#10B981" + "22" : ACCENT,
+                borderColor: done ? "#10B981" : "transparent",
+                borderWidth: done ? 1 : 0,
                 borderRadius: colors.radius,
                 marginHorizontal: 16,
                 opacity: !targetKBNum ? 0.5 : 1,
@@ -192,11 +221,26 @@ export default function TargetResizeScreen() {
             >
               {loading ? <ActivityIndicator color="#FFF" /> : (
                 <>
-                  <MaterialCommunityIcons name={done ? "check-circle" : "target"} size={20} color="#FFF" />
-                  <Text style={styles.processBtnTxt}>{done ? `Done — ~${estimatedKB} KB` : "Resize to Target"}</Text>
+                  <MaterialCommunityIcons name={done ? "check-circle" : "target"} size={20} color={done ? "#10B981" : "#FFF"} />
+                  <Text style={[styles.processBtnTxt, { color: done ? "#10B981" : "#FFF" }]}>{done ? `Done — ~${estimatedKB} KB` : "Resize to Target"}</Text>
                 </>
               )}
             </TouchableOpacity>
+
+            {done && resizedUri && (
+              <TouchableOpacity
+                onPress={saveResized}
+                disabled={saving}
+                style={[styles.processBtn, { backgroundColor: "#10B981", borderRadius: colors.radius, marginHorizontal: 16, marginTop: 4 }]}
+              >
+                {saving ? <ActivityIndicator color="#FFF" /> : (
+                  <>
+                    <MaterialCommunityIcons name="content-save" size={20} color="#FFF" />
+                    <Text style={styles.processBtnTxt}>Save to Gallery</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={{ height: 40 }} />

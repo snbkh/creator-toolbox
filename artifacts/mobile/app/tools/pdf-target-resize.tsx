@@ -51,7 +51,7 @@ export default function PdfTargetResizeScreen() {
   const reduction = originalKB > 0 ? Math.round((1 - ratio * 0.95) * 100) : 0;
 
   const pickPDF = async () => {
-    const result = await DocumentPicker.getDocumentAsync({ type: "application/pdf", copyToCacheDirectory: false });
+    const result = await DocumentPicker.getDocumentAsync({ type: "application/pdf" });
     if (!result.canceled && result.assets[0]) {
       const a = result.assets[0];
       setFile({ name: a.name, size: a.size ?? 1024 * 1024, uri: a.uri });

@@ -46,7 +46,7 @@ export async function generateWithAi(
     let textResult = "";
 
     if (provider === "gemini") {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${geminiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${geminiKey.trim()}`;
       const response = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -56,7 +56,13 @@ export async function generateWithAi(
       });
 
       if (!response.ok) {
-        throw new Error(`Gemini API Error: Status ${response.status}`);
+        const errorText = await response.text();
+        let errMsg = errorText;
+        try {
+          const errObj = JSON.parse(errorText);
+          errMsg = errObj.error?.message || errorText;
+        } catch {}
+        throw new Error(`Gemini API Error (Status ${response.status}): ${errMsg}`);
       }
 
       const data = await response.json();
@@ -67,7 +73,7 @@ export async function generateWithAi(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${openaiKey}`
+          "Authorization": `Bearer ${openaiKey.trim()}`
         },
         body: JSON.stringify({
           model: "gpt-4o-mini",
@@ -77,7 +83,13 @@ export async function generateWithAi(
       });
 
       if (!response.ok) {
-        throw new Error(`OpenAI API Error: Status ${response.status}`);
+        const errorText = await response.text();
+        let errMsg = errorText;
+        try {
+          const errObj = JSON.parse(errorText);
+          errMsg = errObj.error?.message || errorText;
+        } catch {}
+        throw new Error(`OpenAI API Error (Status ${response.status}): ${errMsg}`);
       }
 
       const data = await response.json();
@@ -88,7 +100,7 @@ export async function generateWithAi(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${groqKey}`
+          "Authorization": `Bearer ${groqKey.trim()}`
         },
         body: JSON.stringify({
           model: "llama-3.1-8b-instant",
@@ -98,7 +110,13 @@ export async function generateWithAi(
       });
 
       if (!response.ok) {
-        throw new Error(`Groq API Error: Status ${response.status}`);
+        const errorText = await response.text();
+        let errMsg = errorText;
+        try {
+          const errObj = JSON.parse(errorText);
+          errMsg = errObj.error?.message || errorText;
+        } catch {}
+        throw new Error(`Groq API Error (Status ${response.status}): ${errMsg}`);
       }
 
       const data = await response.json();
@@ -109,7 +127,7 @@ export async function generateWithAi(
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          "x-api-key": claudeKey,
+          "x-api-key": claudeKey.trim(),
           "anthropic-version": "2023-06-01"
         },
         body: JSON.stringify({
@@ -120,7 +138,13 @@ export async function generateWithAi(
       });
 
       if (!response.ok) {
-        throw new Error(`Claude API Error: Status ${response.status}`);
+        const errorText = await response.text();
+        let errMsg = errorText;
+        try {
+          const errObj = JSON.parse(errorText);
+          errMsg = errObj.error?.message || errorText;
+        } catch {}
+        throw new Error(`Claude API Error (Status ${response.status}): ${errMsg}`);
       }
 
       const data = await response.json();
