@@ -8,14 +8,26 @@
       "distribution": "internal",
       "pnpm": "10.33.4",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleDebug"
       }
     },
     "preview": {
       "distribution": "internal",
       "pnpm": "10.33.4",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease"
+      },
+      "env": {
+        "EXPO_NO_DOTENV": "1"
+      }
+    },
+    "preview-aab": {
+      "distribution": "internal",
+      "pnpm": "10.33.4",
+      "android": {
+        "buildType": "app-bundle"
       }
     },
     "production": {
